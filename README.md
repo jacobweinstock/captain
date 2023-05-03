@@ -1,6 +1,6 @@
 # captain
 
-Library for securely sending webhooks. Captain supports the following methods and options for sending webhooks.
+Library for securely sending webhooks. Captain supports the following methods and options for sending webhooks. All payloads will be sent as JSON.
 
 
 - https
