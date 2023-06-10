@@ -1,0 +1,33 @@
+- id: webhook
+  execute-command: /webhook.sh
+  command-working-directory: /tmp
+  include-command-output-in-response: true
+  include-command-output-in-response-on-error: true
+  trigger-rule-mismatch-http-response-code: 401
+  trigger-signature-soft-failures: true
+  incoming-payload-content-type: application/json
+  http-methods:
+  - POST
+  trigger-rule:
+    or:
+      - match:
+          type: payload-hmac-sha256
+          secret: superSecret1
+          parameter:
+            source: header
+            name: X-Rufio-Signature-256
+            headers-to-add-to-signature-payload:
+            - X-Rufio-Timestamp
+            - User-Agent
+      - match:
+          type: payload-hmac-sha512
+          secret: superSecret2
+          parameter:
+            source: header
+            name: X-Rufio-Signature-512
+            headers-to-add-to-signature-payload:
+            - X-Rufio-Timestamp
+            - User-Agent
+  pass-arguments-to-command:
+  - source: entire-payload
+  - source: entire-headers
