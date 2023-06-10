@@ -77,15 +77,10 @@ func configRequest(t *testing.T) *http.Request {
 	p := Payload{
 		Host: "192.168.2.3",
 		Task: Task{
-			/*BootDevice: &BootDevice{
+			BootDevice: &BootDevice{
 				Device:     "pxe",
 				Persistent: false,
 				EFIBoot:    false,
-			},*/
-			//Power: "on",
-			VirtualMedia: &VirtualMedia{
-				Kind:     "cdrom",
-				MediaURL: "http://netboot.xyz.iso",
 			},
 		},
 	}
@@ -95,7 +90,7 @@ func configRequest(t *testing.T) *http.Request {
 	}
 	body := bytes.NewReader(data)
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://192.168.2.50:9000/webhook", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:9000/webhook", body)
 	if err != nil {
 		t.Fatal(err)
 	}

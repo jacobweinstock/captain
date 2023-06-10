@@ -1,5 +1,5 @@
 - id: webhook
-  execute-command: /webhook.sh
+  execute-command: /home/tink/repos/tinkerbell/captain/example/bmc.py
   command-working-directory: /tmp
   include-command-output-in-response: true
   include-command-output-in-response-on-error: true
