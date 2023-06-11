@@ -3,10 +3,14 @@ package captain
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -72,7 +76,7 @@ func TestHMAC(t *testing.T) {
 	t.Fail()
 }
 
-func configRequest(t *testing.T) *http.Request {
+func configRequest(t *testing.T, useTLS bool) *http.Request {
 	t.Helper()
 	p := Payload{
 		Host: "192.168.2.3",
@@ -90,7 +94,15 @@ func configRequest(t *testing.T) *http.Request {
 	}
 	body := bytes.NewReader(data)
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:9000/webhook", body)
+	dest := url.URL{
+		Scheme: "http",
+		Host:   "localhost",
+		Path:   "/webhook",
+	}
+	if useTLS {
+		dest.Scheme = "https"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dest.String(), body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,16 +115,18 @@ func configRequest(t *testing.T) *http.Request {
 }
 
 func TestAddSignature(t *testing.T) {
+	useTLS := true
+	useCertFile := true
 	// configure HTTP request
-	req := configRequest(t)
+	req := configRequest(t, useTLS)
 
 	// configure HMAC
 	// Add signature payload header
 	s := Signature{
-		Header:         "X-Rufio-Signature",
+		BaseHeader:     "X-Rufio-Signature",
 		PayloadHeaders: []string{"X-Rufio-Timestamp", "User-Agent"},
 		HMAC: HMAC{
-			Hashes: MergeHashes(NewSHA256("superSecret1", "superSecret2"), NewSHA512("superSecret2")),
+			Hashes: MergeHashes(NewSHA256("superSecret1", "superSecret2"), NewSHA512("superSecret2", "superSecret3")),
 		},
 	}
 	if err := s.AddSignature(req); err != nil {
@@ -120,7 +134,11 @@ func TestAddSignature(t *testing.T) {
 	}
 
 	// Make HTTP request
-	resp, err := http.DefaultClient.Do(req)
+	client := http.DefaultClient
+	if useTLS && useCertFile {
+		client = httpsClient(t)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,4 +151,23 @@ func TestAddSignature(t *testing.T) {
 	// print response body
 	t.Logf("statusCode: %v, body: %q", resp.StatusCode, string(respBody))
 	t.Fail()
+}
+
+func httpsClient(t *testing.T) *http.Client {
+	t.Helper()
+	f := "cert.pem"
+	f = "example/cert/localhost-copy.crt"
+	caCert, err := ioutil.ReadFile(f)
+	if err != nil {
+		t.Fatalf("Error opening cert file %s, Error: %s", f, err)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+	tp := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: caCertPool,
+		},
+	}
+
+	return &http.Client{Transport: tp}
 }

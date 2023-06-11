@@ -21,4 +21,5 @@
 go.work
 
 out/
-webhook/
+webhook_shell/
+example/cert/localhost*

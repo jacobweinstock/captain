@@ -1,0 +1,40 @@
+version: "3.7"
+
+services:
+  caddy:
+    image: caddy:latest
+    command: caddy reverse-proxy --from localhost --to webhook:9000 --debug
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ${PWD}/cert:/data/caddy/certificates/local/localhost
+  
+  webhook:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ${PWD}/webhook.yaml:/webhook.yaml
+      - ${PWD}/bmc.py:/bmc.py
+      - caddy_data:/data
+
+  # This allows access to the certificate file on the host machine for non root users.
+  cert-permission:
+    image: bash:4.4
+    command: -c "
+      cp -a /data/caddy/certificates/local/localhost/localhost.crt /data/caddy/certificates/local/localhost/localhost-copy.crt;
+      chmod 777 /data/caddy/certificates/local/localhost/localhost-copy.crt;"
+    restart: on-failure
+    volumes:
+      - caddy_data:/data
+      - ${PWD}/cert:/data/caddy/certificates/local/localhost
+    depends_on:
+      caddy:
+        condition: service_started
+
+volumes:
+  caddy_data:
+  caddy_config:

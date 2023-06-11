@@ -5,6 +5,10 @@ help: ## show this help message
 test: ## run unit tests
 	go test -v -covermode=count ./...
 
+.PHONY: run
+run: ## run the webhook listener
+	(cd example; docker compose up --build)
+
 # BEGIN: lint-install jacobweinstock/captain
 # http://github.com/tinkerbell/lint-install
 
