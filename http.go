@@ -27,14 +27,13 @@ func (s Signature) AddSignature(req *http.Request) error {
 	}
 	req.Body = io.NopCloser(bytes.NewBuffer(body))
 	// add headers to signature payload
-	data := string(body)
 	for _, h := range s.PayloadHeaders {
 		if val := req.Header.Get(h); val != "" {
-			data = fmt.Sprintf("%s%s", data, val)
+			body = append(body, []byte(val)...)
 		}
 	}
 
-	signed, err := s.HMAC.Sign(data)
+	signed, err := s.HMAC.Sign(body)
 	if err != nil {
 		return err
 	}

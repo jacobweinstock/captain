@@ -25,11 +25,11 @@ type HMAC struct {
 	NoPrefix bool
 }
 
-func (h HMAC) Sign(data string) (map[Algorithm][]string, error) {
+func (h HMAC) Sign(data []byte) (map[Algorithm][]string, error) {
 	sigs := map[Algorithm][]string{}
 	for algo, hshs := range h.Hashes {
 		for _, hsh := range hshs {
-			_, err := hsh.Write([]byte(data))
+			_, err := hsh.Write(data)
 			if err != nil {
 				return nil, err
 			}

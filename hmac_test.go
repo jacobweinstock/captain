@@ -29,7 +29,7 @@ func TestHMAC(t *testing.T) {
 		t.Fatal(err)
 	}
 	tm1 := "06082023-10:50:45"
-	data1 := fmt.Sprintf("%s\n%s", pj1, tm1)
+	data1 := append(pj1, []byte(tm1)...)
 
 	one := HMAC{
 		Hashes: NewSHA256(secret, secret2),
@@ -50,8 +50,8 @@ func TestHMAC(t *testing.T) {
 		t.Fatal(err)
 	}
 	tm2 := "06082023-10:50:45"
-	data2 := fmt.Sprintf("%s\n%s", pj2, tm2)
-	t.Log(data2)
+	data2 := append(pj2, []byte(tm2)...)
+	t.Log(string(data2))
 	second := HMAC{
 		Hashes: NewSHA256(secret),
 	}
