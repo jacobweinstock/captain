@@ -11,8 +11,10 @@ import (
 type Signature struct {
 	// BaseHeader is the header name that should contain the signature(s). Example: X-Rufio-Signature
 	BaseHeader string
-	// DontAppendAlgoToHeader appends the algorithm to the signature header. Example: X-Rufio-Signature becomes X-Rufio-Signature-256
-	DontAppendAlgoToHeader bool
+	// DisableAlgoHeader decides whether to append the algorithm to the signature header or not. Default is to append.
+	// Example: X-Rufio-Signature becomes X-Rufio-Signature-256
+	// When set to false, a header will be added for each algorithm. Example: X-Rufio-Signature-256 and X-Rufio-Signature-512
+	DisableAlgoHeader bool
 	// PayloadHeaders are headers whose values will be included in the signature payload. Example: X-Rufio-Timestamp
 	PayloadHeaders []string
 	// HMAC is the HMAC to use for signing
@@ -38,7 +40,7 @@ func (s Signature) AddSignature(req *http.Request) error {
 		return err
 	}
 
-	if s.DontAppendAlgoToHeader {
+	if s.DisableAlgoHeader {
 		all := signed[SHA256]
 		all = append(all, signed[SHA512]...)
 		req.Header.Add(s.BaseHeader, strings.Join(all, ","))
