@@ -9,6 +9,7 @@ import (
 	"hash"
 )
 
+// Algorithm is the type for HMAC algorithms.
 type Algorithm string
 
 const (
@@ -18,6 +19,7 @@ const (
 	SHA512Short Algorithm = "512"
 )
 
+// HMAC is the HMAC configuration for signing data.
 type HMAC struct {
 	// Hashes is a map of algorithms to a slice of hash.Hash. The slice is used to support multiple secrets.
 	Hashes map[Algorithm][]hash.Hash

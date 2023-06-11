@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// Signature contains the configuration for signing HTTP requests.
 type Signature struct {
 	// BaseHeader is the header name that should contain the signature(s). Example: X-Rufio-Signature
 	BaseHeader string
