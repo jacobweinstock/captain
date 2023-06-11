@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 )
@@ -155,9 +155,8 @@ func TestAddSignature(t *testing.T) {
 
 func httpsClient(t *testing.T) *http.Client {
 	t.Helper()
-	f := "cert.pem"
-	f = "example/cert/localhost-copy.crt"
-	caCert, err := ioutil.ReadFile(f)
+	f := "example/cert/localhost-copy.crt"
+	caCert, err := os.ReadFile(f)
 	if err != nil {
 		t.Fatalf("Error opening cert file %s, Error: %s", f, err)
 	}
