@@ -76,44 +76,6 @@ func TestHMAC(t *testing.T) {
 	t.Fail()
 }
 
-func configRequest(t *testing.T, useTLS bool) *http.Request {
-	t.Helper()
-	p := Payload{
-		Host: "192.168.2.3",
-		Task: Task{
-			BootDevice: &BootDevice{
-				Device:     "pxe",
-				Persistent: false,
-				EFIBoot:    false,
-			},
-		},
-	}
-	data, err := json.Marshal(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := bytes.NewReader(data)
-	ctx := context.Background()
-	dest := url.URL{
-		Scheme: "http",
-		Host:   "localhost",
-		Path:   "/webhook",
-	}
-	if useTLS {
-		dest.Scheme = "https"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dest.String(), body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	// RFC3339 2006-01-02T15:04:05Z07:00
-	req.Header.Add("X-Rufio-Timestamp", time.Now().Format(time.RFC3339))
-	req.Header.Add("User-Agent", "rufio/0.0.1")
-
-	return req
-}
-
 func TestAddSignature(t *testing.T) {
 	useTLS := true
 	useCertFile := true
@@ -151,6 +113,44 @@ func TestAddSignature(t *testing.T) {
 	// print response body
 	t.Logf("statusCode: %v, body: %q", resp.StatusCode, string(respBody))
 	t.Fail()
+}
+
+func configRequest(t *testing.T, useTLS bool) *http.Request {
+	t.Helper()
+	p := Payload{
+		Host: "192.168.2.3",
+		Task: Task{
+			BootDevice: &BootDevice{
+				Device:     "pxe",
+				Persistent: false,
+				EFIBoot:    false,
+			},
+		},
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewReader(data)
+	ctx := context.Background()
+	dest := url.URL{
+		Scheme: "http",
+		Host:   "localhost",
+		Path:   "/webhook",
+	}
+	if useTLS {
+		dest.Scheme = "https"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, dest.String(), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// RFC3339 2006-01-02T15:04:05Z07:00
+	req.Header.Add("X-Rufio-Timestamp", time.Now().Format(time.RFC3339))
+	req.Header.Add("User-Agent", "rufio/0.0.1")
+
+	return req
 }
 
 func httpsClient(t *testing.T) *http.Client {
