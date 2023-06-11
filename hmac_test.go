@@ -24,12 +24,12 @@ func TestHMAC(t *testing.T) {
 			},
 		},
 	}
-	pj1, err := json.Marshal(p1)
+	data1, err := json.Marshal(p1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tm1 := "06082023-10:50:45"
-	data1 := append(pj1, []byte(tm1)...)
+	data1 = append(data1, []byte(tm1)...)
 
 	one := HMAC{
 		Hashes: NewSHA256(secret, secret2),
@@ -45,12 +45,12 @@ func TestHMAC(t *testing.T) {
 			},
 		},
 	}
-	pj2, err := json.Marshal(p2)
+	data2, err := json.Marshal(p2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tm2 := "06082023-10:50:45"
-	data2 := append(pj2, []byte(tm2)...)
+	data2 = append(data2, []byte(tm2)...)
 	t.Log(string(data2))
 	second := HMAC{
 		Hashes: NewSHA256(secret),
