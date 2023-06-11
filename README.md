@@ -12,14 +12,12 @@ Library for securely sending webhooks. Captain supports the following methods an
   - customizable signature payload
 
 
-## Run a webhook listener
+## Local development
 
 ```bash
-./webhook -verbose -hooks example/webhook.yaml -urlprefix "" -verbose -debug -hotreload
+# Run a webhook listener
+make run
 
-# With TLS
-./webhook -verbose -hooks example/webhook.yaml -urlprefix "" -verbose -debug -hotreload -secure -key key.pem -cert cert.pem
-
-# POST to http://localhost:9000/webhook
+# POST to https://localhost/webhook
 # See TestAddSignature for an example of how to sign a request
 ```
