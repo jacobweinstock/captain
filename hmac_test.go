@@ -35,9 +35,7 @@ func TestHMAC(t *testing.T) {
 	tm1 := "06082023-10:50:45"
 	data1 = append(data1, []byte(tm1)...)
 
-	one := HMAC{
-		Hashes: NewSHA256(secret, secret2),
-	}
+	one := New(WithSHA256(secret, secret2))
 
 	p2 := Payload{
 		Host: "192.168.2.3",
@@ -56,9 +54,7 @@ func TestHMAC(t *testing.T) {
 	tm2 := "06082023-10:50:45"
 	data2 = append(data2, []byte(tm2)...)
 	t.Log(string(data2))
-	second := HMAC{
-		Hashes: NewSHA256(secret),
-	}
+	second := New(WithSHA256(secret))
 
 	shas1, err := second.Sign(data1)
 	if err != nil {
@@ -87,9 +83,7 @@ func TestAddSignature(t *testing.T) {
 	s := Signature{
 		BaseHeader:     "X-Rufio-Signature",
 		PayloadHeaders: []string{"X-Rufio-Timestamp", "User-Agent"},
-		HMAC: HMAC{
-			Hashes: MergeHashes(NewSHA256("superSecret1", "superSecret2"), NewSHA512("superSecret2", "superSecret3")),
-		},
+		HMAC:           New(WithSHA256("superSecret1", "superSecret2"), WithSHA512("superSecret2", "superSecret3")),
 	}
 	if err := s.AddSignature(req); err != nil {
 		t.Fatal(err)
