@@ -1,4 +1,4 @@
-package captain
+package bmc
 
 import (
 	"crypto/hmac"
@@ -50,7 +50,7 @@ func WithNoPrefix() Opt {
 	}
 }
 
-func New(opts ...Opt) HMAC {
+func NewHMAC(opts ...Opt) HMAC {
 	h := HMAC{
 		Hashes:   map[Algorithm][]hash.Hash{},
 		NoPrefix: false,
@@ -74,6 +74,8 @@ func (h HMAC) Sign(data []byte) (map[Algorithm][]string, error) {
 				sig = fmt.Sprintf("%s=%s", algo, sig)
 			}
 			sigs[algo] = append(sigs[algo], sig)
+			// reset so Sign can be called multiple times. Otherwise, the next call will append to the previous one.
+			hsh.Reset()
 		}
 	}
 

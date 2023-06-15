@@ -3,8 +3,11 @@ package captain
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,7 +77,7 @@ func TestHMAC(t *testing.T) {
 
 func TestAddSignature(t *testing.T) {
 	useTLS := true
-	useCertFile := true
+	useCertFile := false
 	// configure HTTP request
 	req := configRequest(t, useTLS)
 
@@ -129,7 +132,7 @@ func configRequest(t *testing.T, useTLS bool) *http.Request {
 	ctx := context.Background()
 	dest := url.URL{
 		Scheme: "http",
-		Host:   "localhost",
+		Host:   "webhook.weinstocklabs.com",
 		Path:   "/webhook",
 	}
 	if useTLS {
@@ -163,4 +166,32 @@ func httpsClient(t *testing.T) *http.Client {
 	}
 
 	return &http.Client{Transport: tp}
+}
+
+func TestXxx(t *testing.T) {
+	// 1. concatenate the body and the timestamp header
+	headers := http.Header{}
+	headers.Add("X-Rufio-Timestamp", time.Now().Format(time.RFC3339))
+	t.Log(headers.Get("X-Rufio-Timestamp"))
+	body := `{"host":"192.168.2.3","task":{"bootDevice":{"device":"pxe","persistent":false,"efiBoot":false}}}`
+	signPayload := fmt.Sprintf("%s%s", body, headers.Get("X-Rufio-Timestamp"))
+
+	// 2. HMAC sign
+	secret := []byte("superSecret")
+	h := hmac.New(sha256.New, secret)
+	if _, err := h.Write([]byte(signPayload)); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Make a hex encoded string of the HMAC signature
+	sig := hex.EncodeToString(h.Sum(nil))
+
+	// 4. Prepend the algorithm type to the signature
+	sig = fmt.Sprintf("sha256=%s", sig)
+
+	// 5. Store the string signature in the header
+	headers.Add("X-Rufio-Signature", sig)
+
+	t.Log(sig)
+	t.Fail()
 }

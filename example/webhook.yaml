@@ -18,7 +18,6 @@
             name: X-Rufio-Signature-256
             headers-to-add-to-signature-payload:
             - X-Rufio-Timestamp
-            - User-Agent
       - match:
           type: payload-hmac-sha512
           secret: superSecret2

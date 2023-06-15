@@ -2,15 +2,18 @@ version: "3.7"
 
 services:
   caddy:
-    image: caddy:latest
-    command: caddy reverse-proxy --from localhost --to webhook:9000 --debug
+    image: caddy:local
+    command: caddy run --config /etc/caddy/Caddyfile
     restart: unless-stopped
+    environment:
+      - CF_API_TOKEN=${CF_API_TOKEN}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - ${PWD}/Caddyfile:/etc/caddy/Caddyfile
       - ${PWD}/cert:/data/caddy/certificates/local/localhost
   
   webhook:
