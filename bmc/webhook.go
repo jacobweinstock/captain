@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	// ProviderName for the Webook implementation
+	// ProviderName for the Webook implementation.
 	ProviderName = "Webhook"
-	// ProviderProtocol for the Webhook implementation
+	// ProviderProtocol for the Webhook implementation.
 	ProviderProtocol = "https"
 )
 
@@ -31,14 +31,12 @@ const (
 	signatureHeader = "X-Rufio-Signature"
 )
 
-var (
-	// Features implemented by the AMT provider
-	Features = registrar.Features{
-		providers.FeaturePowerSet,
-		providers.FeaturePowerState,
-		providers.FeatureBootDeviceSet,
-	}
-)
+// Features implemented by the AMT provider.
+var Features = registrar.Features{
+	providers.FeaturePowerSet,
+	providers.FeaturePowerState,
+	providers.FeatureBootDeviceSet,
+}
 
 // Config defines the configuration for sending webhook notifications.
 type Config struct {
@@ -63,13 +61,14 @@ type Config struct {
 	Logger            logr.Logger
 	LogNotifications  bool
 
-	httpClient  *http.Client
-	consumerURL *url.URL
+	httpClient *http.Client
+	// listenerURL is the URL of the webhook consumer/listener.
+	listenerURL *url.URL
 	sig         Signature
 	powerState  string
 }
 
-// Option for setting optional Config values
+// Option for setting optional Config values.
 type Option func(*Config)
 
 // New returns a new Config for this webhook provider.
@@ -95,7 +94,8 @@ func New(consumerURL string, host string, opts ...Option) *Config {
 		caCertPool.AppendCertsFromPEM(cfg.TLSCert)
 		tp := &http.Transport{
 			TLSClientConfig: &tls.Config{
-				RootCAs: caCertPool,
+				RootCAs:    caCertPool,
+				MinVersion: tls.VersionTLS12,
 			},
 		}
 		cfg.httpClient = &http.Client{Transport: tp}
@@ -137,12 +137,12 @@ func (c *Config) Open(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.consumerURL = u
-	testReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.consumerURL.String(), nil)
+	c.listenerURL = u
+	testReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.listenerURL.String(), nil)
 	if err != nil {
 		return err
 	}
-	if _, err := c.httpClient.Do(testReq); err != nil {
+	if _, err := c.httpClient.Do(testReq); err != nil { //nolint:bodyclose // not reading the body
 		return err
 	}
 
@@ -171,10 +171,10 @@ func (c *Config) BootDeviceSet(ctx context.Context, bootDevice string, setPersis
 		return false, err
 	}
 
-	return c.sendNotification(ctx, p, req)
+	return c.sendNotification(p, req)
 }
 
-// PowerSet sets the power state of a BMC machine
+// PowerSet sets the power state of a BMC machine.
 func (c *Config) PowerSet(ctx context.Context, state string) (ok bool, err error) {
 	p := Payload{
 		Host: c.Host,
@@ -192,7 +192,7 @@ func (c *Config) PowerSet(ctx context.Context, state string) (ok bool, err error
 	if err != nil {
 		return false, err
 	}
-	ok, err = c.sendNotification(ctx, p, req)
+	ok, err = c.sendNotification(p, req)
 	if err != nil {
 		return ok, err
 	}
@@ -201,8 +201,8 @@ func (c *Config) PowerSet(ctx context.Context, state string) (ok bool, err error
 	return ok, nil
 }
 
-// PowerStateGet gets the power state of a BMC machine
-func (c *Config) PowerStateGet(ctx context.Context) (state string, err error) {
+// PowerStateGet gets the power state of a BMC machine.
+func (c *Config) PowerStateGet(_ context.Context) (state string, err error) {
 	if c.powerState != "" {
 		return c.powerState, nil
 	}
@@ -210,7 +210,7 @@ func (c *Config) PowerStateGet(ctx context.Context) (state string, err error) {
 	return "", errors.New("power state unknown")
 }
 
-func (c *Config) requestKVS(t Task, req *http.Request) []interface{} {
+func requestKVS(req *http.Request) []interface{} {
 	reqBody, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil
@@ -222,7 +222,7 @@ func (c *Config) requestKVS(t Task, req *http.Request) []interface{} {
 	}
 }
 
-func (c *Config) responseKVS(t Task, resp *http.Response) []interface{} {
+func responseKVS(resp *http.Response) []interface{} {
 	reqBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil
@@ -240,7 +240,7 @@ func (c *Config) createRequest(ctx context.Context, p Payload) (*http.Request, e
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.consumerURL.String(), bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.listenerURL.String(), bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -250,19 +250,20 @@ func (c *Config) createRequest(ctx context.Context, p Payload) (*http.Request, e
 	return req, nil
 }
 
-func (c *Config) sendNotification(ctx context.Context, p Payload, req *http.Request) (ok bool, err error) {
+func (c *Config) sendNotification(p Payload, req *http.Request) (ok bool, err error) {
 	if err := c.sig.AddSignature(req); err != nil {
 		return false, err
 	}
 	// have to copy the body out before sending the request.
-	kvs := c.requestKVS(p.Task, req)
+	kvs := requestKVS(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		kvs = append(kvs, c.responseKVS(p.Task, resp)...)
+		kvs = append(kvs, responseKVS(resp)...)
 		kvs = append(kvs, []interface{}{"host", c.Host, "task", p.Task, "consumerURL", c.ConsumerURL})
 		if c.LogNotifications {
 			c.Logger.Info("sent webhook notification", kvs...)
@@ -270,7 +271,7 @@ func (c *Config) sendNotification(ctx context.Context, p Payload, req *http.Requ
 		return false, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	kvs = append(kvs, c.responseKVS(p.Task, resp)...)
+	kvs = append(kvs, responseKVS(resp)...)
 	kvs = append(kvs, []interface{}{"host", c.Host, "task", p.Task, "consumerURL", c.ConsumerURL})
 	if c.LogNotifications {
 		c.Logger.Info("sent webhook notification", kvs...)
