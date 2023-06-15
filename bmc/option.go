@@ -18,7 +18,7 @@ func WithBaseSignatureHeader(header string) Option {
 	}
 }
 
-func WithSecretsPerAlgo(secrets map[Algorithm][]string) Option {
+func WithSecrets(secrets map[Algorithm][]string) Option {
 	return func(c *Config) {
 		c.Secrets = secrets
 	}

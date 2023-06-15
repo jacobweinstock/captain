@@ -12,7 +12,7 @@ import (
 
 func TestBootDevice(t *testing.T) {
 	opts := []Option{
-		WithSecretsPerAlgo(map[Algorithm][]string{SHA256: {"superSecret1"}}),
+		WithSecrets(map[Algorithm][]string{SHA256: {"superSecret1"}}),
 		WithLogger(defaultLogger("info")),
 	}
 	c := New("https://webhook.weinstocklabs.com/webhook", "192.168.2.3", opts...)
