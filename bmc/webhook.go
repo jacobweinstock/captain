@@ -272,7 +272,7 @@ func (c *Config) sendNotification(p Payload, req *http.Request) (ok bool, err er
 	}
 
 	kvs = append(kvs, responseKVS(resp)...)
-	kvs = append(kvs, []interface{}{"host", c.Host, "task", p.Task, "consumerURL", c.ConsumerURL})
+	kvs = append(kvs, []interface{}{"host", c.Host, "task", p.Task, "consumerURL", c.ConsumerURL}...)
 	if c.LogNotifications {
 		c.Logger.Info("sent webhook notification", kvs...)
 	}
