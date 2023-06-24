@@ -134,10 +134,8 @@ func TestPowerStateGet(t *testing.T) {
 			got, err := c.PowerStateGet(ctx)
 			if err != nil && !tc.shouldErr {
 				t.Fatal(err)
-			} else {
-				if got != state {
-					t.Fatalf("expected %s, got %s", state, got)
-				}
+			} else if got != state {
+				t.Fatalf("expected %s, got %s", state, got)
 			}
 		})
 	}
