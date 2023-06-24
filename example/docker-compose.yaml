@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   caddy:
-    image: caddy:local
+    build: caddy
     command: caddy run --config /etc/caddy/Caddyfile
     restart: unless-stopped
     environment:

@@ -16,27 +16,12 @@ import (
 
 	"github.com/bmc-toolbox/bmclib/v2/providers"
 	"github.com/go-logr/logr"
+	"github.com/jacobweinstock/captain/bmc/internal"
 	"github.com/jacobweinstock/registrar"
 )
 
-const (
-	// ProviderName for the Webook implementation.
-	ProviderName = "Webhook"
-	// ProviderProtocol for the Webhook implementation.
-	ProviderProtocol = "https"
-)
-
-const (
-	timestampHeader = "X-Rufio-Timestamp"
-	signatureHeader = "X-Rufio-Signature"
-)
-
-// Features implemented by the AMT provider.
-var Features = registrar.Features{
-	providers.FeaturePowerSet,
-	providers.FeaturePowerState,
-	providers.FeatureBootDeviceSet,
-}
+// Algorithm is the type for HMAC algorithms.
+type Algorithm string
 
 // Config defines the configuration for sending webhook notifications.
 type Config struct {
@@ -58,18 +43,45 @@ type Config struct {
 	IncludedPayloadHeaders []string
 	// IncludeAlgoPrefix will prepend the algorithm and an equal sign to the signature. Example: sha256=abc123
 	IncludeAlgoPrefix bool
-	Logger            logr.Logger
-	LogNotifications  bool
+	// Logger is the logger to use for logging.
+	Logger logr.Logger
+	// LogNotifications will log the notifications sent to the webhook consumer/listener.
+	LogNotifications bool
 
+	// httpClient is the http client used for all methods.
 	httpClient *http.Client
 	// listenerURL is the URL of the webhook consumer/listener.
 	listenerURL *url.URL
-	sig         Signature
-	powerState  string
+	// sig is for adding the signature to the request header.
+	sig internal.Signature
+	// powerState is the current power state of the BMC. The nature of wehhooks is that the provider (us) does not have
+	// an API response contract with the consumer/listener. So we need to keep track of the power state ourselves.
+	// This means that only after a successful power state change (PowerSet), we can update this field, with any confidence, with the power state.
+	powerState string
 }
 
 // Option for setting optional Config values.
 type Option func(*Config)
+
+const (
+	// ProviderName for the Webook implementation.
+	ProviderName = "Webhook"
+	// ProviderProtocol for the Webhook implementation.
+	ProviderProtocol           = "https"
+	SHA256           Algorithm = "sha256"
+	SHA256Short      Algorithm = "256"
+	SHA512           Algorithm = "sha512"
+	SHA512Short      Algorithm = "512"
+	timestampHeader            = "X-Rufio-Timestamp"
+	signatureHeader            = "X-Rufio-Signature"
+)
+
+// Features implemented by the AMT provider.
+var Features = registrar.Features{
+	providers.FeaturePowerSet,
+	providers.FeaturePowerState,
+	providers.FeatureBootDeviceSet,
+}
 
 // New returns a new Config for this webhook provider.
 func New(consumerURL string, host string, opts ...Option) *Config {
@@ -104,17 +116,17 @@ func New(consumerURL string, host string, opts ...Option) *Config {
 	// create the signature object
 	if len(cfg.Secrets) > 0 {
 		// maybe validate BaseSignatureHeader and that there are secrets.
-		opts := []Opt{}
+		opts := []internal.Opt{}
 		if len(cfg.Secrets[SHA256]) > 0 {
-			opts = append(opts, WithSHA256(cfg.Secrets[SHA256]...))
+			opts = append(opts, internal.WithSHA256(cfg.Secrets[SHA256]...))
 		}
 		if len(cfg.Secrets[SHA512]) > 0 {
-			opts = append(opts, WithSHA512(cfg.Secrets[SHA512]...))
+			opts = append(opts, internal.WithSHA512(cfg.Secrets[SHA512]...))
 		}
-		cfg.sig = Signature{
+		cfg.sig = internal.Signature{
 			BaseHeader:     cfg.BaseSignatureHeader,
 			PayloadHeaders: cfg.IncludedPayloadHeaders,
-			HMAC:           NewHMAC(opts...),
+			HMAC:           internal.NewHMAC(opts...),
 		}
 	}
 
@@ -171,34 +183,32 @@ func (c *Config) BootDeviceSet(ctx context.Context, bootDevice string, setPersis
 		return false, err
 	}
 
-	return c.sendNotification(p, req)
+	return c.signAndSend(p, req)
 }
 
 // PowerSet sets the power state of a BMC machine.
 func (c *Config) PowerSet(ctx context.Context, state string) (ok bool, err error) {
-	p := Payload{
-		Host: c.Host,
-		Task: Task{
-			Power: strings.ToLower(state),
-		},
-	}
 	switch strings.ToLower(state) {
 	case "on", "off", "cycle":
-	default:
-		return false, errors.New("requested state type unknown or not supported")
+		p := Payload{
+			Host: c.Host,
+			Task: Task{
+				Power: strings.ToLower(state),
+			},
+		}
+		req, err := c.createRequest(ctx, p)
+		if err != nil {
+			return false, err
+		}
+		ok, err = c.signAndSend(p, req)
+		if err != nil {
+			return ok, err
+		}
+		c.powerState = state
+		return ok, nil
 	}
 
-	req, err := c.createRequest(ctx, p)
-	if err != nil {
-		return false, err
-	}
-	ok, err = c.sendNotification(p, req)
-	if err != nil {
-		return ok, err
-	}
-	c.powerState = state
-
-	return ok, nil
+	return false, errors.New("requested power state is not supported")
 }
 
 // PowerStateGet gets the power state of a BMC machine.
@@ -207,7 +217,7 @@ func (c *Config) PowerStateGet(_ context.Context) (state string, err error) {
 		return c.powerState, nil
 	}
 
-	return "", errors.New("power state unknown")
+	return "", errors.New("the webhook provider requires PowerSet be called first")
 }
 
 func requestKVS(req *http.Request) []interface{} {
@@ -250,7 +260,7 @@ func (c *Config) createRequest(ctx context.Context, p Payload) (*http.Request, e
 	return req, nil
 }
 
-func (c *Config) sendNotification(p Payload, req *http.Request) (ok bool, err error) {
+func (c *Config) signAndSend(p Payload, req *http.Request) (bool, error) {
 	if err := c.sig.AddSignature(req); err != nil {
 		return false, err
 	}

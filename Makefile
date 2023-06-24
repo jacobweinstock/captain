@@ -9,6 +9,10 @@ test: ## run unit tests
 run: ## run the webhook listener
 	(cd example; docker compose up --build)
 
+.PHONY: run-stop
+run-stop: ## stop the webhook listener
+	(cd example; docker compose down)
+
 # BEGIN: lint-install jacobweinstock/captain
 # http://github.com/tinkerbell/lint-install
 

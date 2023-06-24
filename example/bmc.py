@@ -16,13 +16,12 @@ def main() -> int:
     #print('signature:', headers["X-Rufio-Signature-256"])
     #print('headers:', headers)
     payload = json.loads(args.payload)
-    #print('host:', payload["host"])
 
-    if payload['task'].get('power') != None:
+    if payload['task'] != None and payload['task'].get('power') != None:
         #print(payload['task'].get('power'))
-        print('do power action')
+        print('{"response":"do power action"}')
     elif payload['task'].get('bootDevice') != None:
-        print('do boot device action')
+        print('{"response":"doing boot device action"}')
     else:
         print('unknown action')
         return 1

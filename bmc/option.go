@@ -14,7 +14,9 @@ func WithLogger(logger logr.Logger) Option {
 
 func WithBaseSignatureHeader(header string) Option {
 	return func(c *Config) {
-		c.BaseSignatureHeader = header
+		if header != "" {
+			c.BaseSignatureHeader = header
+		}
 	}
 }
 

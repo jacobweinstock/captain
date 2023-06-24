@@ -1,4 +1,4 @@
-package bmc
+package internal
 
 import (
 	"crypto/hmac"

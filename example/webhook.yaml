@@ -26,7 +26,6 @@
             name: X-Rufio-Signature-512
             headers-to-add-to-signature-payload:
             - X-Rufio-Timestamp
-            - User-Agent
   pass-arguments-to-command:
   - source: entire-payload
   - source: entire-headers

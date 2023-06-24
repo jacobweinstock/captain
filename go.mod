@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/bmc-toolbox/bmclib/v2 v2.0.0
 	github.com/go-logr/zerologr v1.2.3
+	github.com/google/go-cmp v0.5.9
 	github.com/jacobweinstock/registrar v0.4.7
 	github.com/rs/zerolog v1.29.1
 )
