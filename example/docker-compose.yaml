@@ -28,8 +28,8 @@ services:
   cert-permission:
     image: bash:4.4
     command: -c "
-      cp -a /data/caddy/certificates/local/localhost/localhost.crt /data/caddy/certificates/local/localhost/localhost-copy.crt;
-      chmod 777 /data/caddy/certificates/local/localhost/localhost-copy.crt;"
+      cp -a /data/caddy/certificates/local/localhost/localhost.crt /data/caddy/certificates/local/localhost/localhost-copy.crt || true;
+      chmod 777 /data/caddy/certificates/local/localhost/localhost-copy.crt || true;"
     restart: on-failure
     volumes:
       - caddy_data:/data

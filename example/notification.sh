@@ -71,7 +71,7 @@ main() {
     echo "============Signature Details============"
     echo
     echo "============Response Details============="
-    curl "${url}" --data "${data}" -H "${sig}" -H "X-Rufio-Timestamp: ${d}" -H "Content-Type: application/json"
+    curl "${url}" --data "${data}" -H "${sig}" -H "X-Rufio-Timestamp: ${d}" -H "Content-Type: application/vnd.api+json"
     echo "============Response Details============="  
 }
 

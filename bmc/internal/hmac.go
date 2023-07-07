@@ -27,36 +27,10 @@ type HMAC struct {
 	NoPrefix bool
 }
 
-type Opt func(HMAC) HMAC
-
-func WithSHA256(secrets ...string) Opt {
-	return func(h HMAC) HMAC {
-		h.Hashes = MergeHashes(h.Hashes, NewSHA256(secrets...))
-		return h
-	}
-}
-
-func WithSHA512(secrets ...string) Opt {
-	return func(h HMAC) HMAC {
-		h.Hashes = MergeHashes(h.Hashes, NewSHA512(secrets...))
-		return h
-	}
-}
-
-func WithNoPrefix() Opt {
-	return func(h HMAC) HMAC {
-		h.NoPrefix = true
-		return h
-	}
-}
-
-func NewHMAC(opts ...Opt) HMAC {
+func NewHMAC() HMAC {
 	h := HMAC{
 		Hashes:   map[Algorithm][]hash.Hash{},
 		NoPrefix: false,
-	}
-	for _, opt := range opts {
-		h = opt(h)
 	}
 
 	return h

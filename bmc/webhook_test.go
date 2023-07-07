@@ -142,21 +142,20 @@ func TestPowerStateGet(t *testing.T) {
 }
 
 func TestBootDevice(t *testing.T) {
-	run := os.Getenv("LIVE_TEST")
+	/*run := os.Getenv("LIVE_TEST")
 	if run == "" {
 		t.Skip("set LIVE_TEST to run this test")
-	}
-	opts := []Option{
-		WithSecrets(map[Algorithm][]string{SHA256: {"superSecret1"}}),
-		WithLogger(defaultLogger("info")),
-	}
-	c := New("https://webhook.weinstocklabs.com/webhook", "192.168.2.3", opts...)
+	}*/
+	c := New("https://webhook.weinstocklabs.com/webhook", "192.168.2.3")
+	c.Logger = defaultLogger("info")
+	c.AddSecrets(map[Algorithm][]string{SHA256: {"superSecret1", "superSecret2"}, SHA512: {"superSecret1", "superSecret2"}})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := c.Open(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer c.Close(ctx)
 	ok, err := c.BootDeviceSet(ctx, "pxe", false, false)
 	if err != nil {
 		t.Fatal(err)
@@ -207,17 +206,23 @@ func defaultLogger(level string) logr.Logger {
 }
 
 func TestXxx(t *testing.T) {
-	run := os.Getenv("LIVE_TEST")
-	if run == "" {
-		t.Skip("set LIVE_TEST to run this test")
-	}
-	c := New("https://webhook.weinstocklabs.com/webhook", "192.168.5.6", WithSecrets(map[Algorithm][]string{SHA256: {"superSecret1"}}))
+	//run := os.Getenv("LIVE_TEST")
+	//if run == "" {
+	//		t.Skip("set LIVE_TEST to run this test")
+	//	}
+	// instantiate
+	c := New("https://webhook.weinstocklabs.com/webhook", "192.168.5.6")
+
+	// initialize
+	c.Logger = defaultLogger("info")
+	c.AddSecrets(map[Algorithm][]string{SHA256: {"superSecret1", "asfd"}, SHA512: {"superSecret2", "asfd"}})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := c.Open(ctx); err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer c.Close(ctx)
 	ok, err := c.BootDeviceSet(ctx, "pxe", false, false)
 	if err != nil {
 		t.Fatal(err)

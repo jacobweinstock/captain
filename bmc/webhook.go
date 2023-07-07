@@ -30,12 +30,12 @@ type Config struct {
 	// ConsumerURL is the URL where a webhook consumer/listener is running and to which we will send notifications.
 	ConsumerURL string
 	// Secrets holds the secrets per signing algorithm.
-	Secrets map[Algorithm][]string
+	//Secrets map[Algorithm][]string
 	// TLSCert is the TLS CA certificate to use. Must be used with UseTLS=true.
-	TLSCert []byte
+	// TLSCert []byte
 	// BaseSignatureHeader is the header name that should contain the signature(s). Example: X-Rufio-Signature
 	BaseSignatureHeader string
-	// IncludeAlgoHeader decides whether to append the algorithm to the signature header or not. Default is to append.
+	// IncludeAlgoHeader determines whether to append the algorithm to the signature header or not.
 	// Example: X-Rufio-Signature becomes X-Rufio-Signature-256
 	// When set to false, a header will be added for each algorithm. Example: X-Rufio-Signature-256 and X-Rufio-Signature-512
 	IncludeAlgoHeader bool
@@ -47,6 +47,10 @@ type Config struct {
 	Logger logr.Logger
 	// LogNotifications will log the notifications sent to the webhook consumer/listener.
 	LogNotifications bool
+	// HTTPContentType is the content type to use for the webhook request notification.
+	HTTPContentType string
+	// HTTPMethod is the HTTP method to use for the webhook request notification.
+	HTTPMethod string
 
 	// httpClient is the http client used for all methods.
 	httpClient *http.Client
@@ -60,20 +64,22 @@ type Config struct {
 	powerState string
 }
 
-// Option for setting optional Config values.
-type Option func(*Config)
-
 const (
 	// ProviderName for the Webook implementation.
 	ProviderName = "Webhook"
 	// ProviderProtocol for the Webhook implementation.
-	ProviderProtocol           = "https"
-	SHA256           Algorithm = "sha256"
-	SHA256Short      Algorithm = "256"
-	SHA512           Algorithm = "sha512"
-	SHA512Short      Algorithm = "512"
-	timestampHeader            = "X-Rufio-Timestamp"
-	signatureHeader            = "X-Rufio-Signature"
+	ProviderProtocol = "https"
+	// SHA256 is the SHA256 algorithm.
+	SHA256 Algorithm = "sha256"
+	// SHA256Short is the short version of the SHA256 algorithm.
+	SHA256Short Algorithm = "256"
+	// SHA512 is the SHA512 algorithm.
+	SHA512 Algorithm = "sha512"
+	// SHA512Short is the short version of the SHA512 algorithm.
+	SHA512Short Algorithm = "512"
+
+	timestampHeader = "X-Rufio-Timestamp"
+	signatureHeader = "X-Rufio-Signature"
 )
 
 // Features implemented by the AMT provider.
@@ -84,7 +90,16 @@ var Features = registrar.Features{
 }
 
 // New returns a new Config for this webhook provider.
-func New(consumerURL string, host string, opts ...Option) *Config {
+//
+// Defaults:
+// BaseSignatureHeader: X-Rufio-Signature
+// IncludeAlgoHeader: true
+// IncludedPayloadHeaders: []string{"X-Rufio-Timestamp"}
+// IncludeAlgoPrefix: true
+// Logger: logr.Discard()
+// LogNotifications: true
+// httpClient: http.DefaultClient
+func New(consumerURL string, host string) *Config {
 	cfg := &Config{
 		Host:                   host,
 		ConsumerURL:            consumerURL,
@@ -94,43 +109,45 @@ func New(consumerURL string, host string, opts ...Option) *Config {
 		IncludeAlgoPrefix:      true,
 		Logger:                 logr.Discard(),
 		LogNotifications:       true,
+		HTTPContentType:            "application/vnd.api+json",
+		HTTPMethod:             http.MethodPost,
 		httpClient:             http.DefaultClient,
-	}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// create the http client with the TLS cert if provided.
-	if cfg.TLSCert != nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(cfg.TLSCert)
-		tp := &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    caCertPool,
-				MinVersion: tls.VersionTLS12,
-			},
-		}
-		cfg.httpClient = &http.Client{Transport: tp}
 	}
 
 	// create the signature object
-	if len(cfg.Secrets) > 0 {
-		// maybe validate BaseSignatureHeader and that there are secrets.
-		opts := []internal.Opt{}
-		if len(cfg.Secrets[SHA256]) > 0 {
-			opts = append(opts, internal.WithSHA256(cfg.Secrets[SHA256]...))
-		}
-		if len(cfg.Secrets[SHA512]) > 0 {
-			opts = append(opts, internal.WithSHA512(cfg.Secrets[SHA512]...))
-		}
-		cfg.sig = internal.Signature{
-			BaseHeader:     cfg.BaseSignatureHeader,
-			PayloadHeaders: cfg.IncludedPayloadHeaders,
-			HMAC:           internal.NewHMAC(opts...),
-		}
+	// maybe validate BaseSignatureHeader and that there are secrets?
+	cfg.sig = internal.Signature{
+		BaseHeader:     cfg.BaseSignatureHeader,
+		PayloadHeaders: cfg.IncludedPayloadHeaders,
+		HMAC:           internal.NewHMAC(),
 	}
 
 	return cfg
+}
+
+// AddSecrets adds secrets to the Config.
+func (c *Config) AddSecrets(smap map[Algorithm][]string) {
+	for algo, secrets := range smap {
+		switch algo {
+		case SHA256:
+			c.sig.HMAC.Hashes = internal.MergeHashes(c.sig.HMAC.Hashes, internal.NewSHA256(secrets...))
+		case SHA512:
+			c.sig.HMAC.Hashes = internal.MergeHashes(c.sig.HMAC.Hashes, internal.NewSHA512(secrets...))
+		}
+	}
+}
+
+func (c *Config) SetTLSCert(cert []byte) {
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(cert)
+	tp := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:    caCertPool,
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	c.httpClient = &http.Client{Transport: tp}
+
 }
 
 // Name returns the name of this webhook provider.
@@ -150,7 +167,7 @@ func (c *Config) Open(ctx context.Context) error {
 		return err
 	}
 	c.listenerURL = u
-	testReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.listenerURL.String(), nil)
+	testReq, err := http.NewRequestWithContext(ctx, c.HTTPMethod, c.listenerURL.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -162,7 +179,7 @@ func (c *Config) Open(ctx context.Context) error {
 }
 
 // Close a connection to the webhook consumer.
-func (c *Config) Close() (err error) {
+func (c *Config) Close(_ context.Context) (err error) {
 	return nil
 }
 
@@ -223,12 +240,20 @@ func (c *Config) PowerStateGet(_ context.Context) (state string, err error) {
 func requestKVS(req *http.Request) []interface{} {
 	reqBody, err := io.ReadAll(req.Body)
 	if err != nil {
+		// TODO(jacobweinstock): either log the error or change the func signature to return it
 		return nil
 	}
 	req.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+	var p Payload
+	if err := json.Unmarshal(reqBody, &p); err != nil {
+		// TODO(jacobweinstock): either log the error or change the func signature to return it
+		return nil
+	}
 	return []interface{}{
-		"requestBody", string(reqBody),
+		"requestBody", p,
 		"requestHeaders", req.Header,
+		"requestURL", req.URL.String(),
+		"requestMethod", req.Method,
 	}
 }
 
@@ -238,9 +263,13 @@ func responseKVS(resp *http.Response) []interface{} {
 		return nil
 	}
 	resp.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+	var p map[string]interface{}
+	if err := json.Unmarshal(reqBody, &p); err != nil {
+		return nil
+	}
 	return []interface{}{
 		"statusCode", resp.StatusCode,
-		"responseBody", string(reqBody),
+		"responseBody", p,
 		"responseHeaders", resp.Header,
 	}
 }
@@ -250,11 +279,12 @@ func (c *Config) createRequest(ctx context.Context, p Payload) (*http.Request, e
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.listenerURL.String(), bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, c.HTTPMethod, c.listenerURL.String(), bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", c.HTTPContentType)
+	// TODO(jacobweinstock): this should be configurable.
 	req.Header.Add(timestampHeader, time.Now().Format(time.RFC3339))
 
 	return req, nil
