@@ -29,10 +29,6 @@ type Config struct {
 	Host string
 	// ConsumerURL is the URL where a webhook consumer/listener is running and to which we will send notifications.
 	ConsumerURL string
-	// Secrets holds the secrets per signing algorithm.
-	//Secrets map[Algorithm][]string
-	// TLSCert is the TLS CA certificate to use. Must be used with UseTLS=true.
-	// TLSCert []byte
 	// BaseSignatureHeader is the header name that should contain the signature(s). Example: X-Rufio-Signature
 	BaseSignatureHeader string
 	// IncludeAlgoHeader determines whether to append the algorithm to the signature header or not.
@@ -92,13 +88,14 @@ var Features = registrar.Features{
 // New returns a new Config for this webhook provider.
 //
 // Defaults:
-// BaseSignatureHeader: X-Rufio-Signature
-// IncludeAlgoHeader: true
-// IncludedPayloadHeaders: []string{"X-Rufio-Timestamp"}
-// IncludeAlgoPrefix: true
-// Logger: logr.Discard()
-// LogNotifications: true
-// httpClient: http.DefaultClient
+//
+//	BaseSignatureHeader: X-Rufio-Signature
+//	IncludeAlgoHeader: true
+//	IncludedPayloadHeaders: []string{"X-Rufio-Timestamp"}
+//	IncludeAlgoPrefix: true
+//	Logger: logr.Discard()
+//	LogNotifications: true
+//	httpClient: http.DefaultClient
 func New(consumerURL string, host string) *Config {
 	cfg := &Config{
 		Host:                   host,
@@ -109,7 +106,7 @@ func New(consumerURL string, host string) *Config {
 		IncludeAlgoPrefix:      true,
 		Logger:                 logr.Discard(),
 		LogNotifications:       true,
-		HTTPContentType:            "application/vnd.api+json",
+		HTTPContentType:        "application/vnd.api+json",
 		HTTPMethod:             http.MethodPost,
 		httpClient:             http.DefaultClient,
 	}
@@ -129,9 +126,9 @@ func New(consumerURL string, host string) *Config {
 func (c *Config) AddSecrets(smap map[Algorithm][]string) {
 	for algo, secrets := range smap {
 		switch algo {
-		case SHA256:
+		case SHA256, SHA256Short:
 			c.sig.HMAC.Hashes = internal.MergeHashes(c.sig.HMAC.Hashes, internal.NewSHA256(secrets...))
-		case SHA512:
+		case SHA512, SHA512Short:
 			c.sig.HMAC.Hashes = internal.MergeHashes(c.sig.HMAC.Hashes, internal.NewSHA512(secrets...))
 		}
 	}
@@ -147,7 +144,6 @@ func (c *Config) SetTLSCert(cert []byte) {
 		},
 	}
 	c.httpClient = &http.Client{Transport: tp}
-
 }
 
 // Name returns the name of this webhook provider.

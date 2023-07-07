@@ -206,8 +206,8 @@ func defaultLogger(level string) logr.Logger {
 }
 
 func TestXxx(t *testing.T) {
-	//run := os.Getenv("LIVE_TEST")
-	//if run == "" {
+	// run := os.Getenv("LIVE_TEST")
+	// if run == "" {
 	//		t.Skip("set LIVE_TEST to run this test")
 	//	}
 	// instantiate
