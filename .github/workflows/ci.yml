@@ -8,7 +8,8 @@ on:
   pull_request:
 
 env:
-  NO_DOCKER: 1
+  KERNEL_MODE: docker
+  MKOSI_MODE: native
 
 jobs:
   build:

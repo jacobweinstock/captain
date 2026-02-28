@@ -86,33 +86,42 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
-def check_dependencies(arch: str) -> list[str]:
-    """Check that all required host tools are available for a native (no-Docker) build.
+def _missing(cmds: list[str]) -> list[str]:
+    """Return command names from *cmds* that are not found on ``$PATH``."""
+    import shutil as _shutil
+
+    return [cmd for cmd in cmds if _shutil.which(cmd) is None]
+
+
+def check_kernel_dependencies(arch: str) -> list[str]:
+    """Check host tools required for a native kernel build.
 
     Returns a list of missing command names (empty if all found).
     """
-    import shutil as _shutil
+    required = ["make", "gcc", "flex", "bison", "bc", "rsync", "strip"]
+    if arch in ("arm64", "aarch64"):
+        required += ["aarch64-linux-gnu-gcc", "aarch64-linux-gnu-strip"]
+    return _missing(required)
 
-    # Core tools needed for kernel build + mkosi image assembly
-    required = [
-        "make",
-        "gcc",
-        "flex",
-        "bison",
-        "bc",
-        "rsync",
-        "strip",
+
+def check_mkosi_dependencies() -> list[str]:
+    """Check host tools required for a native mkosi image build.
+
+    Returns a list of missing command names (empty if all found).
+    """
+    return _missing([
         "mkosi",
         "zstd",
         "cpio",
         "bwrap",       # bubblewrap — used by mkosi
         "mksquashfs",  # squashfs-tools — used by mkosi
         "kmod",
-    ]
+    ])
 
-    # Cross-compilation toolchain for arm64-on-x86_64
-    if arch in ("arm64", "aarch64"):
-        required.append("aarch64-linux-gnu-gcc")
-        required.append("aarch64-linux-gnu-strip")
 
-    return [cmd for cmd in required if _shutil.which(cmd) is None]
+def check_dependencies(arch: str) -> list[str]:
+    """Check *all* host tools for a fully native build (kernel + mkosi).
+
+    Returns a list of missing command names (empty if all found).
+    """
+    return check_kernel_dependencies(arch) + check_mkosi_dependencies()

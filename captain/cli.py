@@ -5,109 +5,116 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from pathlib import Path
 
 from captain import artifacts, docker, kernel, qemu, tools
 from captain.config import Config
 from captain.log import err, log
-from captain.util import check_dependencies, run
+from captain.util import check_kernel_dependencies, check_mkosi_dependencies, run
 
 
-def _ensure_native_deps(cfg: Config) -> None:
-    """Verify all required host tools exist when running without Docker."""
-    missing = check_dependencies(cfg.arch)
-    if missing:
-        err(f"Missing required tools: {', '.join(missing)}")
-        err("Install them or unset NO_DOCKER to use the Docker builder.")
-        raise SystemExit(1)
-    log("All native dependencies found.")
+# ---------------------------------------------------------------------------
+# Build helpers
+# ---------------------------------------------------------------------------
 
+def _build_kernel_stage(cfg: Config) -> None:
+    """Run the kernel + tools build stage according to *cfg.kernel_mode*."""
+    match cfg.kernel_mode:
+        case "skip":
+            log("KERNEL_MODE=skip — skipping kernel & tools")
+            return
+        case "native":
+            missing = check_kernel_dependencies(cfg.arch)
+            if missing:
+                err(f"Missing kernel build tools: {', '.join(missing)}")
+                err("Install them or set KERNEL_MODE=docker.")
+                raise SystemExit(1)
+            # Kernel
+            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+            if modules_dir.is_dir() and not cfg.force_kernel:
+                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+            else:
+                log("Building kernel (native)...")
+                kernel.build(cfg)
+            # Tools
+            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tools.download_all(cfg)
+        case "docker":
+            docker.build_builder(cfg)
+            # Kernel
+            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+            if modules_dir.is_dir() and not cfg.force_kernel:
+                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+            else:
+                log("Building kernel (docker)...")
+                docker.run_in_builder(
+                    cfg,
+                    "--entrypoint",
+                    "python3",
+                    cfg.builder_image,
+                    "/work/scripts/build-kernel.py",
+                )
+            # Tools
+            log("Downloading tools (nerdctl, containerd, etc.)...")
+            docker.run_in_builder(
+                cfg,
+                "--entrypoint",
+                "python3",
+                cfg.builder_image,
+                "/work/scripts/download-tools.py",
+            )
+
+
+def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
+    """Run the mkosi image-assembly stage according to *cfg.mkosi_mode*."""
+    match cfg.mkosi_mode:
+        case "skip":
+            log("MKOSI_MODE=skip — skipping image assembly")
+            return
+        case "native":
+            missing = check_mkosi_dependencies()
+            if missing:
+                err(f"Missing mkosi tools: {', '.join(missing)}")
+                err("Install them or set MKOSI_MODE=docker.")
+                raise SystemExit(1)
+            log("Building initrd with mkosi (native)...")
+            mkosi_args = list(cfg.mkosi_args) + list(extra_args)
+            run(
+                [
+                    "mkosi",
+                    f"--architecture={cfg.arch_info.mkosi_arch}",
+                    "build",
+                    *mkosi_args,
+                ],
+                cwd=cfg.project_dir,
+            )
+        case "docker":
+            if cfg.kernel_mode != "docker":
+                # Builder image may not have been built yet
+                docker.build_builder(cfg)
+            log("Building initrd with mkosi (docker)...")
+            mkosi_args = list(cfg.mkosi_args) + list(extra_args)
+            docker.run_mkosi(cfg, "build", *mkosi_args)
+
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
 
 def _cmd_build(cfg: Config, extra_args: list[str]) -> None:
-    """Full build: builder image → kernel → tools → mkosi → artifacts."""
-    if cfg.no_docker:
-        _cmd_build_native(cfg, extra_args)
-    else:
-        _cmd_build_docker(cfg, extra_args)
-
-
-def _cmd_build_docker(cfg: Config, extra_args: list[str]) -> None:
-    """Build using Docker containers."""
-    docker.build_builder(cfg)
-
-    # Step 1: Kernel
-    modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-    if modules_dir.is_dir() and not cfg.force_kernel:
-        log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-    else:
-        log("Step 1/4: Building kernel...")
-        docker.run_in_builder(
-            cfg,
-            "--entrypoint",
-            "python3",
-            cfg.builder_image,
-            "/work/scripts/build-kernel.py",
-        )
-
-    # Step 2: Tools
-    log("Step 2/3: Downloading tools (nerdctl, containerd, etc.)...")
-    docker.run_in_builder(
-        cfg,
-        "--entrypoint",
-        "python3",
-        cfg.builder_image,
-        "/work/scripts/download-tools.py",
-    )
-
-    # Step 3: mkosi
-    log("Step 3/3: Building initrd with mkosi...")
-    mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-    docker.run_mkosi(cfg, "build", *mkosi_args)
-
-    # Step 4: Collect
-    artifacts.collect(cfg)
-    log("Build complete!")
-
-
-def _cmd_build_native(cfg: Config, extra_args: list[str]) -> None:
-    """Build directly on the host — no Docker."""
-    _ensure_native_deps(cfg)
-
-    # Step 1: Kernel
-    modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-    if modules_dir.is_dir() and not cfg.force_kernel:
-        log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-    else:
-        log("Step 1/4: Building kernel...")
-        kernel.build(cfg)
-
-    # Step 2: Tools
-    log("Step 2/3: Downloading tools (nerdctl, containerd, etc.)...")
-    tools.download_all(cfg)
-
-    # Step 3: mkosi
-    log("Step 3/3: Building initrd with mkosi...")
-    mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-    run(
-        [
-            "mkosi",
-            f"--architecture={cfg.arch_info.mkosi_arch}",
-            "build",
-            *mkosi_args,
-        ],
-        cwd=cfg.project_dir,
-    )
-
-    # Step 4: Collect
+    """Full build: kernel → tools → mkosi → artifacts."""
+    _build_kernel_stage(cfg)
+    _build_mkosi_stage(cfg, extra_args)
     artifacts.collect(cfg)
     log("Build complete!")
 
 
 def _cmd_shell(cfg: Config, _extra_args: list[str]) -> None:
     """Interactive shell inside the builder container."""
-    if cfg.no_docker:
-        err("'shell' command is not available with NO_DOCKER=1.")
+    if not cfg.needs_docker:
+        err("'shell' requires at least one stage using Docker.")
+        err("Set KERNEL_MODE=docker or MKOSI_MODE=docker.")
         raise SystemExit(1)
     docker.build_builder(cfg)
     log("Entering builder shell (type 'exit' to leave)...")
@@ -120,17 +127,8 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
     mkosi_output = cfg.mkosi_output
     mkosi_cache = cfg.project_dir / "mkosi.cache"
 
-    if cfg.no_docker:
-        # Native: remove directly (may need sudo for root-owned mkosi files)
-        for pattern in ("image*", "image.vmlinuz"):
-            for p in mkosi_output.glob(pattern):
-                if p.is_dir():
-                    shutil.rmtree(p, ignore_errors=True)
-                else:
-                    p.unlink(missing_ok=True)
-        if mkosi_cache.exists():
-            shutil.rmtree(mkosi_cache, ignore_errors=True)
-    else:
+    has_docker = shutil.which("docker") is not None
+    if has_docker:
         # Use Docker to remove root-owned files from mkosi
         if mkosi_output.exists() or mkosi_cache.exists():
             run(
@@ -148,6 +146,16 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
                     "rm -rf /work/mkosi.output/image* /work/mkosi.output/image.vmlinuz /work/mkosi.cache",
                 ],
             )
+    else:
+        # No Docker available — remove directly (may need sudo for root-owned mkosi files)
+        for pattern in ("image*", "image.vmlinuz"):
+            for p in mkosi_output.glob(pattern):
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
+        if mkosi_cache.exists():
+            shutil.rmtree(mkosi_cache, ignore_errors=True)
 
     if cfg.output_dir.exists():
         shutil.rmtree(cfg.output_dir)
@@ -156,14 +164,18 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
 
 def _cmd_summary(cfg: Config, _extra_args: list[str]) -> None:
     """Print mkosi configuration summary."""
-    if cfg.no_docker:
-        run(
-            ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", "summary"],
-            cwd=cfg.project_dir,
-        )
-    else:
-        docker.build_builder(cfg)
-        docker.run_mkosi(cfg, "summary")
+    match cfg.mkosi_mode:
+        case "docker":
+            docker.build_builder(cfg)
+            docker.run_mkosi(cfg, "summary")
+        case "native":
+            run(
+                ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", "summary"],
+                cwd=cfg.project_dir,
+            )
+        case "skip":
+            err("Cannot show mkosi summary when MKOSI_MODE=skip.")
+            raise SystemExit(1)
 
 
 def _cmd_qemu_test(cfg: Config, _extra_args: list[str]) -> None:
@@ -182,25 +194,27 @@ def main(project_dir: Path | None = None) -> None:
 
 environment variables:
   ARCH            Target architecture: amd64 (default) or arm64
+  KERNEL_MODE     Kernel build mode: docker (default), native, or skip
+  MKOSI_MODE      mkosi build mode: docker (default), native, or skip
   KERNEL_SRC      Path to local kernel source tree
   KERNEL_VERSION  Kernel version to build (default: 6.12.69)
   FORCE_KERNEL    Set to 1 to force kernel rebuild
   FORCE_TOOLS     Set to 1 to re-download tools
   NO_CACHE        Set to 1 to rebuild builder image without cache
-  NO_DOCKER       Set to 1 to build without Docker (all deps must be on host)
   BUILDER_IMAGE   Override builder Docker image name
   QEMU_APPEND     Extra kernel cmdline args for qemu-test
   QEMU_MEM        QEMU RAM size (default: 2G)
   QEMU_SMP        QEMU CPU count (default: 2)
 
 examples:
-  ./build.py                     Build with defaults
-  ARCH=arm64 ./build.py          Build for ARM64
-  KERNEL_SRC=~/linux ./build.py  Use local kernel source
-  FORCE_KERNEL=1 ./build.py      Force kernel rebuild
-  NO_DOCKER=1 ./build.py         Build natively (no Docker)
-  ./build.py shell               Debug inside builder
-  ./build.py qemu-test           Boot test with QEMU"""
+  ./build.py                                  Build with defaults (all Docker)
+  ARCH=arm64 ./build.py                       Build for ARM64
+  KERNEL_SRC=~/linux ./build.py               Use local kernel source
+  FORCE_KERNEL=1 ./build.py                   Force kernel rebuild
+  KERNEL_MODE=skip MKOSI_MODE=native build.py Skip kernel, native mkosi
+  KERNEL_MODE=native ./build.py               Native kernel, Docker mkosi
+  ./build.py shell                            Debug inside builder
+  ./build.py qemu-test                        Boot test with QEMU"""
 
     parser = ArgumentParser(
         prog="build.py",
@@ -255,11 +269,15 @@ examples:
         handler(cfg, remaining)
     else:
         # Pass through to mkosi
-        if cfg.no_docker:
-            run(
-                ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", command, *remaining],
-                cwd=cfg.project_dir,
-            )
-        else:
-            docker.build_builder(cfg)
-            docker.run_mkosi(cfg, command, *remaining)
+        match cfg.mkosi_mode:
+            case "docker":
+                docker.build_builder(cfg)
+                docker.run_mkosi(cfg, command, *remaining)
+            case "native":
+                run(
+                    ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", command, *remaining],
+                    cwd=cfg.project_dir,
+                )
+            case "skip":
+                err(f"Cannot pass '{command}' to mkosi when MKOSI_MODE=skip.")
+                raise SystemExit(1)

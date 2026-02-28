@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from captain.util import ArchInfo, get_arch_info
+
+# Valid values for KERNEL_MODE and MKOSI_MODE.
+VALID_MODES = ("docker", "native", "skip")
 
 
 @dataclass(slots=True)
@@ -25,7 +29,10 @@ class Config:
     # Docker
     builder_image: str = "captainos-builder"
     no_cache: bool = False
-    no_docker: bool = False
+
+    # Per-stage mode: "docker" | "native" | "skip"
+    kernel_mode: str = "docker"
+    mkosi_mode: str = "docker"
 
     # Force flags
     force_kernel: bool = False
@@ -44,10 +51,26 @@ class Config:
 
     def __post_init__(self) -> None:
         self.arch_info = get_arch_info(self.arch)
+        for name, value in (("KERNEL_MODE", self.kernel_mode), ("MKOSI_MODE", self.mkosi_mode)):
+            if value not in VALID_MODES:
+                print(
+                    f"ERROR: {name}={value!r} is invalid. "
+                    f"Valid values: {', '.join(VALID_MODES)}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+    @property
+    def needs_docker(self) -> bool:
+        """True if any stage requires Docker."""
+        return self.kernel_mode == "docker" or self.mkosi_mode == "docker"
 
     @classmethod
     def from_env(cls, project_dir: Path) -> Config:
-        """Create a Config from environment variables, matching build.sh defaults."""
+        """Create a Config from environment variables.
+
+        KERNEL_MODE / MKOSI_MODE accept "docker" (default), "native", or "skip".
+        """
         return cls(
             project_dir=project_dir,
             output_dir=project_dir / "out",
@@ -56,7 +79,8 @@ class Config:
             kernel_src=os.environ.get("KERNEL_SRC") or None,
             builder_image=os.environ.get("BUILDER_IMAGE", "captainos-builder"),
             no_cache=os.environ.get("NO_CACHE") == "1",
-            no_docker=os.environ.get("NO_DOCKER") == "1",
+            kernel_mode=os.environ.get("KERNEL_MODE", "docker"),
+            mkosi_mode=os.environ.get("MKOSI_MODE", "docker"),
             force_kernel=os.environ.get("FORCE_KERNEL") == "1",
             force_tools=os.environ.get("FORCE_TOOLS") == "1",
             qemu_append=os.environ.get("QEMU_APPEND", ""),

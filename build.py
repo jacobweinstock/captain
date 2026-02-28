@@ -11,6 +11,8 @@ Usage:
 
 Environment variables:
     ARCH            Target architecture: amd64 (default) or arm64
+    KERNEL_MODE     Kernel build mode: docker (default), native, or skip
+    MKOSI_MODE      mkosi build mode: docker (default), native, or skip
     KERNEL_SRC      Path to a local kernel source tree (optional, avoids download)
     KERNEL_VERSION  Kernel version to build (default: 6.12.69)
     NO_CACHE        Set to 1 to force Docker image rebuild without cache
@@ -21,7 +23,7 @@ Environment variables:
     QEMU_MEM        QEMU RAM size (default: 2G)
     QEMU_SMP        QEMU CPU count (default: 2)
 
-Requires: Python >= 3.10, Docker
+Requires: Python >= 3.10, Docker (unless all stages use native or skip)
 """
 
 import sys
