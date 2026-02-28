@@ -1,0 +1,21 @@
+name: For each commit and PR
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v**"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: setup-mkosi
+        uses: systemd/mkosi@v26
+    
+      - name: build
+        run: ./build.sh build

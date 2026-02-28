@@ -21,26 +21,26 @@ CaptainOS boots via PXE/iPXE, runs entirely from RAM as a compressed CPIO initra
 
 ## Building
 
-**Prerequisites:** Docker (or Podman)
+**Prerequisites:** Python >= 3.10, Docker (or Podman)
 
 ```bash
 # Build with defaults (amd64, kernel 6.12.69)
-./build.sh
+./build.py
 
 # Build for ARM64
-ARCH=arm64 ./build.sh
+ARCH=arm64 ./build.py
 
 # Use a local kernel source tree
-KERNEL_SRC=~/linux ./build.sh
+KERNEL_SRC=~/linux ./build.py
 
 # Force kernel rebuild
-FORCE_KERNEL=1 ./build.sh
+FORCE_KERNEL=1 ./build.py
 
 # Force tool re-download
-FORCE_TOOLS=1 ./build.sh
+FORCE_TOOLS=1 ./build.py
 
 # Rebuild builder image without cache
-NO_CACHE=1 ./build.sh
+NO_CACHE=1 ./build.py
 ```
 
 Output artifacts are placed in `out/`:
@@ -51,18 +51,18 @@ Output artifacts are placed in `out/`:
 ### Other commands
 
 ```bash
-./build.sh shell       # Interactive shell inside the builder container
-./build.sh clean       # Remove build artifacts
-./build.sh summary     # Print mkosi configuration summary
-./build.sh qemu-test   # Boot the image in QEMU for quick testing
+./build.py shell       # Interactive shell inside the builder container
+./build.py clean       # Remove build artifacts
+./build.py summary     # Print mkosi configuration summary
+./build.py qemu-test   # Boot the image in QEMU for quick testing
 ```
 
 ## Architecture
 
 The build has three stages, all running inside a Docker container:
 
-1. **Kernel compilation** (`scripts/build-kernel.sh`) — builds a Linux kernel from source using minimal defconfigs (`config/defconfig.{amd64,arm64}`)
-2. **Tool download** (`scripts/download-tools.sh`) — fetches pinned binary releases of the container runtime stack
+1. **Kernel compilation** (`captain/kernel.py`) — builds a Linux kernel from source using minimal defconfigs (`config/defconfig.{amd64,arm64}`)
+2. **Tool download** (`captain/tools.py`) — fetches pinned binary releases of the container runtime stack
 3. **mkosi image build** (`mkosi.conf`) — assembles a Debian Trixie CPIO initramfs with systemd, injecting the kernel, modules, and tools
 
 ### Included tools
@@ -100,7 +100,18 @@ CaptainOS reads provisioning configuration from the kernel command line:
 
 ```bash
 .
-├── build.sh                    # Main build orchestrator
+├── build.py                    # Main build entry point (Python >= 3.10)
+├── captain/                    # Build system package (stdlib only)
+│   ├── __init__.py
+│   ├── cli.py                  # CLI subcommands (argparse)
+│   ├── config.py               # Configuration from environment
+│   ├── docker.py               # Docker builder management
+│   ├── kernel.py               # Kernel compilation logic
+│   ├── tools.py                # Binary tool downloader
+│   ├── artifacts.py            # Artifact collection & checksums
+│   ├── qemu.py                 # QEMU boot testing
+│   ├── log.py                  # Colored logging
+│   └── util.py                 # Shared helpers & arch mapping
 ├── Dockerfile                  # Builder container definition
 ├── mkosi.conf                  # mkosi image configuration
 ├── mkosi.postinst              # Post-install hooks (symlinks, cleanup)
@@ -109,8 +120,8 @@ CaptainOS reads provisioning configuration from the kernel command line:
 │   ├── defconfig.amd64         # Kernel config for x86_64
 │   └── defconfig.arm64         # Kernel config for aarch64
 ├── scripts/
-│   ├── build-kernel.sh         # Kernel compilation script
-│   └── download-tools.sh       # Binary tool downloader
+│   ├── build-kernel.py         # In-container kernel build entry point
+│   └── download-tools.py       # In-container tool download entry point
 └── mkosi.extra/                # Files overlaid into the image
     ├── init                    # Custom PID 1 (rootfs → tmpfs → systemd)
     └── etc/
@@ -124,13 +135,13 @@ CaptainOS reads provisioning configuration from the kernel command line:
 ## Testing with QEMU
 
 ```bash
-./build.sh qemu-test
+./build.py qemu-test
 
 # With extra kernel cmdline parameters
-QEMU_APPEND='tink_worker_image=reg.local/tink-agent:latest docker_registry=reg.local' ./build.sh qemu-test
+QEMU_APPEND='tink_worker_image=reg.local/tink-agent:latest docker_registry=reg.local' ./build.py qemu-test
 
 # With more resources
-QEMU_MEM=4G QEMU_SMP=4 ./build.sh qemu-test
+QEMU_MEM=4G QEMU_SMP=4 ./build.py qemu-test
 ```
 
 This boots the image in QEMU with a virtio NIC and serial console. `console=ttyS0 audit=0` is always appended. Press `Ctrl-A X` to exit.

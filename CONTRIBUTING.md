@@ -17,7 +17,7 @@ Please read and understand the DCO found [here](https://github.com/tinkerbell/or
 
 ## Environment Details
 
-Building is handled by a bash script, please see the [build.sh](build.sh) for details.
+Building is handled by a Python script, please see the [build.py](build.py) for details. Only Python >= 3.10 and Docker are required.
 
 ## How to Submit Change Requests
 
