@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from argparse import ArgumentParser
@@ -64,6 +65,23 @@ def _build_kernel_stage(cfg: Config) -> None:
                 cfg.builder_image,
                 "/work/scripts/download-tools.py",
             )
+            # The Docker container runs as root, so files it creates inside
+            # the bind-mounted mkosi.output/ are owned by root.  If the next
+            # stage runs natively (MKOSI_MODE=native), mkosi won't be able to
+            # write to that directory.  Fix ownership now.
+            if cfg.mkosi_mode == "native":
+                uid = os.getuid()
+                gid = os.getgid()
+                log("Fixing ownership of mkosi.output/ for native mkosi...")
+                run(
+                    [
+                        "docker", "run", "--rm",
+                        "-v", f"{cfg.project_dir}:/work",
+                        "-w", "/work",
+                        "debian:trixie",
+                        "chown", "-R", f"{uid}:{gid}", "/work/mkosi.output",
+                    ],
+                )
 
 
 def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
