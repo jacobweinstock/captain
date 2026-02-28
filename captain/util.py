@@ -84,3 +84,35 @@ def ensure_dir(path: Path) -> Path:
     """Create a directory (and parents) if it doesn't exist, return the path."""
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def check_dependencies(arch: str) -> list[str]:
+    """Check that all required host tools are available for a native (no-Docker) build.
+
+    Returns a list of missing command names (empty if all found).
+    """
+    import shutil as _shutil
+
+    # Core tools needed for kernel build + mkosi image assembly
+    required = [
+        "make",
+        "gcc",
+        "flex",
+        "bison",
+        "bc",
+        "rsync",
+        "strip",
+        "mkosi",
+        "zstd",
+        "cpio",
+        "bwrap",       # bubblewrap — used by mkosi
+        "mksquashfs",  # squashfs-tools — used by mkosi
+        "kmod",
+    ]
+
+    # Cross-compilation toolchain for arm64-on-x86_64
+    if arch in ("arm64", "aarch64"):
+        required.append("aarch64-linux-gnu-gcc")
+        required.append("aarch64-linux-gnu-strip")
+
+    return [cmd for cmd in required if _shutil.which(cmd) is None]

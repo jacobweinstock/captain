@@ -25,6 +25,7 @@ class Config:
     # Docker
     builder_image: str = "captainos-builder"
     no_cache: bool = False
+    no_docker: bool = False
 
     # Force flags
     force_kernel: bool = False
@@ -55,6 +56,7 @@ class Config:
             kernel_src=os.environ.get("KERNEL_SRC") or None,
             builder_image=os.environ.get("BUILDER_IMAGE", "captainos-builder"),
             no_cache=os.environ.get("NO_CACHE") == "1",
+            no_docker=os.environ.get("NO_DOCKER") == "1",
             force_kernel=os.environ.get("FORCE_KERNEL") == "1",
             force_tools=os.environ.get("FORCE_TOOLS") == "1",
             qemu_append=os.environ.get("QEMU_APPEND", ""),
