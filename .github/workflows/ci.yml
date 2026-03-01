@@ -9,11 +9,13 @@ on:
 
 env:
   KERNEL_VERSION: "6.12.69"
-  MKOSI_MODE: native
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  # -------------------------------------------------------------------
+  # Build kernel (vmlinuz + modules) inside Docker
+  # -------------------------------------------------------------------
+  build-kernel:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,17 +23,11 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_MODE: docker
+      MKOSI_MODE: skip
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      # ---------------------------------------------------------------
-      # Docker builder image cache (only used when KERNEL_MODE=docker)
-      # Uses the GitHub Actions cache backend (type=gha) so Buildx
-      # reads/writes layers directly — no separate actions/cache step
-      # or local-cache rotation needed.
-      # https://docs.docker.com/build/cache/backends/gha/
-      # ---------------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -39,23 +35,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          # Load the built image into the local Docker daemon so
-          # subsequent steps can use it via `docker run captainos-builder`.
           load: true
           tags: captainos-builder
-          # Pull cached layers from the GHA cache (scope avoids
-          # collisions with other caches in this workflow).
           cache-from: type=gha,scope=builder
-          # Push all layers (mode=max) back to the GHA cache so
-          # subsequent runs can skip unchanged build stages.
           cache-to: type=gha,scope=builder,mode=max
 
-      # ---------------------------------------------------------------
-      # Kernel cache  (vmlinuz + modules)
-      # Key inputs: kernel version, defconfig, build logic, Dockerfile
-      # (compiler toolchain).
-      # ---------------------------------------------------------------
-      - name: Cache kernel build
+      - name: Restore kernel cache
         id: kernel-cache
         uses: actions/cache@v4
         with:
@@ -64,11 +49,40 @@ jobs:
             mkosi.output/vmlinuz
           key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'captain/kernel.py', 'Dockerfile') }}
 
-      # ---------------------------------------------------------------
-      # Tools cache  (containerd, runc, nerdctl, CNI plugins)
-      # Key inputs: tool versions/URLs pinned in tools.py, architecture.
-      # ---------------------------------------------------------------
-      - name: Cache tools
+      - name: Build kernel
+        run: ./build.py kernel
+
+      - name: Fix output file ownership
+        run: sudo chown -R "$(id -u):$(id -g)" mkosi.output/
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: |
+            mkosi.output/kernel/usr/lib/modules
+            mkosi.output/vmlinuz
+            out/vmlinuz-${{ matrix.arch }}
+          retention-days: 1
+
+  # -------------------------------------------------------------------
+  # Download tools (containerd, runc, nerdctl, CNI plugins)
+  # -------------------------------------------------------------------
+  download-tools:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      KERNEL_MODE: skip
+      MKOSI_MODE: skip
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Restore tools cache
         id: tools-cache
         uses: actions/cache@v4
         with:
@@ -77,37 +91,67 @@ jobs:
             mkosi.output/kernel/opt/cni
           key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
 
-      # ---------------------------------------------------------------
-      # Build kernel + download tools (skips mkosi).
-      # Honors KERNEL_MODE — docker, native, or skip.
-      # The build script auto-skips kernel if modules dir exists (cache
-      # hit) and auto-skips each tool if its binary exists (cache hit).
-      # ---------------------------------------------------------------
-      - name: Build kernel and download tools
-        run: |
-          MKOSI_MODE=skip ./build.py build
+      - name: Download tools
+        run: ./build.py tools
 
-      # ---------------------------------------------------------------
-      # Fix ownership — Docker containers create files as root; mkosi
-      # running natively needs the current user to own them.
-      # ---------------------------------------------------------------
-      - name: Fix output file ownership
-        run: |
-          sudo chown -R "$(id -u):$(id -g)" mkosi.output/
+      - name: Upload tools artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ matrix.arch }}
+          path: |
+            mkosi.output/kernel/usr/local/bin
+            mkosi.output/kernel/opt/cni
+          retention-days: 1
 
-      # ---------------------------------------------------------------
-      # mkosi — always runs (depends on mkosi.conf, mkosi.finalize,
-      # mkosi.extra/*, packages, etc. which change frequently).
-      # ---------------------------------------------------------------
+  # -------------------------------------------------------------------
+  # Build initramfs via mkosi (depends on kernel + tools)
+  # -------------------------------------------------------------------
+  build-initramfs:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    needs: [build-kernel, download-tools]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      KERNEL_MODE: skip
+      MKOSI_MODE: native
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download kernel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: mkosi.output/
+
+      - name: Download tools artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tools-${{ matrix.arch }}
+          path: mkosi.output/kernel/
+
       - name: setup-mkosi
         uses: systemd/mkosi@v26
 
-      - name: Build initramfs
+      - name: Install bubblewrap
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
-          # The mkosi action removes AppArmor, but Docker still tries to apply
-          # profiles from before the removal.  Restart the daemon so it notices.
-          sudo systemctl restart docker
-          # Skip kernel/tools stages — they are already built above.
-          KERNEL_MODE=skip ./build.py build
+
+      # The mkosi action removes AppArmor, but Docker still tries to apply
+      # profiles from before the removal.  Restart the daemon so it notices.
+      - name: Restart Docker (post AppArmor removal)
+        run: sudo systemctl restart docker
+
+      - name: Build initramfs
+        run: ./build.py initramfs
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: captainos-${{ matrix.arch }}
+          path: out/
+          retention-days: 7

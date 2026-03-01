@@ -2,8 +2,11 @@
 """CaptainOS build system entry point.
 
 Usage:
-    ./build.py              # Build the image
+    ./build.py              # Build the image (all stages)
     ./build.py build        # Same as above
+    ./build.py kernel       # Build only the kernel + modules
+    ./build.py tools        # Download tools (containerd, runc, nerdctl, CNI)
+    ./build.py initramfs    # Build only the initramfs via mkosi
     ./build.py shell        # Drop into an interactive shell inside the builder
     ./build.py clean        # Remove build artifacts
     ./build.py summary      # Print mkosi configuration summary

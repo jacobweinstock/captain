@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Download binary tools — runs inside the Docker builder container.
+"""Download binary tools — in-container entry point.
 
-This is the in-container entry point that replaces scripts/download-tools.sh.
-It reuses the captain.tools module for the actual logic.
+Runs inside the Docker builder container.  Delegates to captain.tools.download_all().
 """
 
 import sys

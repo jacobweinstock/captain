@@ -191,11 +191,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
 
 
 def build(cfg: Config) -> None:
-    """Full kernel build pipeline — download, configure, build, install.
-
-    This is called from inside the Docker builder container via build-kernel.py,
-    or can be invoked directly when running natively.
-    """
+    """Full kernel build pipeline — download, configure, build, install."""
     # Clean previous output to ensure idempotency
     if cfg.kernel_output.exists():
         shutil.rmtree(cfg.kernel_output)

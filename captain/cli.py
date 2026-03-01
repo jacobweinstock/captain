@@ -120,6 +120,73 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
 # Subcommands
 # ---------------------------------------------------------------------------
 
+def _cmd_kernel(cfg: Config, _extra_args: list[str]) -> None:
+    """Build only the kernel (no tools, no mkosi)."""
+    match cfg.kernel_mode:
+        case "skip":
+            log("KERNEL_MODE=skip — skipping kernel build")
+            return
+        case "native":
+            missing = check_kernel_dependencies(cfg.arch)
+            if missing:
+                err(f"Missing kernel build tools: {', '.join(missing)}")
+                err("Install them or set KERNEL_MODE=docker.")
+                raise SystemExit(1)
+            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+            if modules_dir.is_dir() and not cfg.force_kernel:
+                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+            else:
+                log("Building kernel (native)...")
+                kernel.build(cfg)
+        case "docker":
+            docker.build_builder(cfg)
+            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+            if modules_dir.is_dir() and not cfg.force_kernel:
+                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+            else:
+                log("Building kernel (docker)...")
+                docker.run_in_builder(
+                    cfg,
+                    "--entrypoint",
+                    "python3",
+                    cfg.builder_image,
+                    "/work/scripts/build-kernel.py",
+                )
+    # Copy vmlinuz to the standard out/ directory.
+    artifacts.collect_kernel(cfg)
+    log("Kernel build stage complete!")
+
+
+def _cmd_tools(cfg: Config, _extra_args: list[str]) -> None:
+    """Download tools (containerd, runc, nerdctl, CNI plugins)."""
+    match cfg.kernel_mode:
+        case "skip":
+            # When kernel_mode is skip we still download tools directly
+            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tools.download_all(cfg)
+        case "native":
+            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tools.download_all(cfg)
+        case "docker":
+            docker.build_builder(cfg)
+            log("Downloading tools (nerdctl, containerd, etc.)...")
+            docker.run_in_builder(
+                cfg,
+                "--entrypoint",
+                "python3",
+                cfg.builder_image,
+                "/work/scripts/download-tools.py",
+            )
+    log("Tools stage complete!")
+
+
+def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:
+    """Build only the initramfs via mkosi, then collect artifacts."""
+    _build_mkosi_stage(cfg, extra_args)
+    artifacts.collect(cfg)
+    log("Initramfs build complete!")
+
+
 def _cmd_build(cfg: Config, extra_args: list[str]) -> None:
     """Full build: kernel → tools → mkosi → artifacts."""
     _build_kernel_stage(cfg)
@@ -243,6 +310,9 @@ examples:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("build", help="Build the CaptainOS image (default)")
+    sub.add_parser("kernel", help="Build only the kernel + modules")
+    sub.add_parser("tools", help="Download tools (containerd, runc, nerdctl, CNI)")
+    sub.add_parser("initramfs", help="Build only the initramfs via mkosi")
     sub.add_parser("shell", help="Interactive shell inside the builder container")
     sub.add_parser("clean", help="Remove all build artifacts")
     sub.add_parser("summary", help="Print mkosi configuration summary")
@@ -304,6 +374,9 @@ example:
 
     dispatch = {
         "build": _cmd_build,
+        "kernel": _cmd_kernel,
+        "tools": _cmd_tools,
+        "initramfs": _cmd_initramfs,
         "shell": _cmd_shell,
         "clean": _cmd_clean,
         "summary": _cmd_summary,

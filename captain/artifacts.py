@@ -29,6 +29,20 @@ def _human_size(size: int) -> str:
     return f"{size:.1f}T"
 
 
+def collect_kernel(cfg: Config) -> None:
+    """Copy just the kernel image from mkosi.output/vmlinuz/ to out/."""
+    out = ensure_dir(cfg.output_dir)
+    vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+    vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
+    if vmlinuz_files:
+        vmlinuz_src = vmlinuz_files[0]
+        vmlinuz_dst = out / f"vmlinuz-{cfg.arch}"
+        shutil.copy2(vmlinuz_src, vmlinuz_dst)
+        log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
+    else:
+        warn("No kernel image found in mkosi.output/vmlinuz/")
+
+
 def collect(cfg: Config) -> None:
     """Copy initramfs and kernel images from mkosi.output/ to out/."""
     log("Collecting build artifacts...")

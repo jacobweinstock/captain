@@ -78,9 +78,6 @@ def run_in_builder(cfg: Config, *extra_args: str) -> None:
     """Run a command inside the Docker builder container.
 
     *extra_args* are appended after the docker run flags and image name.
-    Typical usage::
-
-        run_in_builder(cfg, "--entrypoint", "bash", cfg.builder_image, "/work/scripts/foo.sh")
     """
     docker_args: list[str] = [
         "docker",

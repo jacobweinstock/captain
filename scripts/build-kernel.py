@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Build the Linux kernel — runs inside the Docker builder container.
+"""Build the Linux kernel — in-container entry point.
 
-This is the in-container entry point that replaces scripts/build-kernel.sh.
-It reuses the captain.kernel module for the actual logic.
+Runs inside the Docker builder container.  Delegates to captain.kernel.build().
 """
 
 import sys
