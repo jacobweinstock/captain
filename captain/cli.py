@@ -161,12 +161,12 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
                     "debian:trixie",
                     "sh",
                     "-c",
-                    "rm -rf /work/mkosi.output/image* /work/mkosi.output/image.vmlinuz /work/mkosi.cache",
+                    "rm -rf /work/mkosi.output/image* /work/mkosi.output/image.vmlinuz /work/mkosi.output/vmlinuz /work/mkosi.cache",
                 ],
             )
     else:
         # No Docker available — remove directly (may need sudo for root-owned mkosi files)
-        for pattern in ("image*", "image.vmlinuz"):
+        for pattern in ("image*", "image.vmlinuz", "vmlinuz"):
             for p in mkosi_output.glob(pattern):
                 if p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)

@@ -44,16 +44,17 @@ def collect(cfg: Config) -> None:
     else:
         warn("No initramfs CPIO found in mkosi.output/")
 
-    # Find the kernel image
-    boot_dir = cfg.kernel_output / "boot"
-    vmlinuz_files = sorted(boot_dir.glob("vmlinuz-*")) if boot_dir.is_dir() else []
+    # Find the kernel image (stored outside ExtraTrees so it doesn't bloat
+    # the initramfs — iPXE loads the kernel separately).
+    vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+    vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     if vmlinuz_files:
         vmlinuz_src = vmlinuz_files[0]
         vmlinuz_dst = out / f"vmlinuz-{cfg.arch}"
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
         log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        warn("No kernel image found in mkosi.output/kernel/boot/")
+        warn("No kernel image found in mkosi.output/vmlinuz/")
 
     # Print checksums
     artifacts = sorted(out.iterdir())

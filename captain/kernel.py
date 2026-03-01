@@ -141,6 +141,14 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     for ko in kernel_output.rglob("*.ko"):
         run([strip_cmd, "--strip-unneeded", str(ko)], check=False)
 
+    # Compress modules with zstd (the defconfig sets CONFIG_MODULE_COMPRESS_ZSTD
+    # and CONFIG_MODULE_DECOMPRESS so the kernel can load .ko.zst at runtime).
+    # We compress explicitly here because the build container's modules_install
+    # may not always invoke zstd, and stripping must happen before compression.
+    log("Compressing kernel modules with zstd...")
+    for ko in kernel_output.rglob("*.ko"):
+        run(["zstd", "--rm", "-q", "-19", str(ko)], check=True)
+
     # Clean up build/source symlinks
     mod_base = kernel_output / "lib" / "modules" / built_kver
     (mod_base / "build").unlink(missing_ok=True)
@@ -160,18 +168,23 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
         # Remove /lib tree
         shutil.rmtree(kernel_output / "lib", ignore_errors=True)
 
-    # Copy kernel image
-    kernel_image = src_dir / ai.kernel_image_path
-    shutil.copy2(kernel_image, usr_moddir / "vmlinuz")
+    # Regenerate module dependency metadata for the compressed .ko.zst files.
+    log("Running depmod for compressed modules...")
+    run(
+        ["depmod", "-a", "-b", str(kernel_output / "usr"), built_kver],
+        check=True,
+    )
 
-    # Also place a copy at a well-known location for easy extraction
-    boot_dir = ensure_dir(kernel_output / "boot")
-    shutil.copy2(kernel_image, boot_dir / f"vmlinuz-{built_kver}")
+    # Place vmlinuz *outside* the ExtraTrees path so it does NOT end up
+    # inside the initramfs CPIO.  iPXE loads the kernel separately.
+    kernel_image = src_dir / ai.kernel_image_path
+    vmlinuz_dir = ensure_dir(kernel_output.parent / "vmlinuz")
+    shutil.copy2(kernel_image, vmlinuz_dir / f"vmlinuz-{built_kver}")
 
     log("Kernel build complete:")
-    vmlinuz = usr_moddir / "vmlinuz"
+    vmlinuz = vmlinuz_dir / f"vmlinuz-{built_kver}"
     vmlinuz_size = vmlinuz.stat().st_size / (1024 * 1024)
-    log(f"    Image:   {usr_moddir}/vmlinuz ({vmlinuz_size:.1f}M)")
+    log(f"    Image:   {vmlinuz} ({vmlinuz_size:.1f}M)")
     log(f"    Modules: {usr_moddir}/")
     log(f"    Version: {built_kver}")
     log(f"    Output:  {kernel_output}")
