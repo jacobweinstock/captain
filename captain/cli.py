@@ -246,7 +246,35 @@ examples:
     sub.add_parser("shell", help="Interactive shell inside the builder container")
     sub.add_parser("clean", help="Remove all build artifacts")
     sub.add_parser("summary", help="Print mkosi configuration summary")
-    sub.add_parser("qemu-test", help="Boot the image in QEMU for testing")
+    qemu_env_help = """\
+environment variables (Tinkerbell kernel cmdline):
+  TINK_GRPC_AUTHORITY       tink-server gRPC endpoint (host:port)
+  TINK_DOCKER_REGISTRY      Registry host (triggers tink-agent services)
+  TINK_WORKER_IMAGE         Full image ref (overrides TINK_DOCKER_REGISTRY)
+  TINK_WORKER_ID            Machine / worker ID (auto-detected when empty)
+  TINK_TLS                  Enable TLS to tink-server (default: false)
+  TINK_INSECURE_TLS         Allow insecure TLS (default: true)
+  TINK_INSECURE_REGISTRIES  Comma-separated insecure registries
+  TINK_REGISTRY_USERNAME    Registry auth username
+  TINK_REGISTRY_PASSWORD    Registry auth password
+  TINK_SYSLOG_HOST          Remote syslog host
+  TINK_FACILITY             Facility code
+
+  QEMU_APPEND               Extra kernel cmdline args
+  QEMU_MEM                  QEMU RAM size (default: 2G)
+  QEMU_SMP                  QEMU CPU count (default: 2)
+
+example:
+  TINK_DOCKER_REGISTRY=10.0.2.2:5000 \\
+  TINK_GRPC_AUTHORITY=10.0.2.2:42113 \\
+  TINK_INSECURE_REGISTRIES=10.0.2.2:5000 \\
+  ./build.py qemu-test"""
+    sub.add_parser(
+        "qemu-test",
+        help="Boot the image in QEMU for testing",
+        epilog=qemu_env_help,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
     # Parse known args — anything unknown is passed through to mkosi
     args, extra = parser.parse_known_args()
