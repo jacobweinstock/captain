@@ -144,11 +144,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bubblewrap
 
-      # The mkosi action removes AppArmor, but Docker still tries to apply
-      # profiles from before the removal.  Restart the daemon so it notices.
-      - name: Restart Docker (post AppArmor removal)
-        run: sudo systemctl restart docker
-
       - name: Build initramfs
         run: ./build.py initramfs
 
