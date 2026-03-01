@@ -133,6 +133,9 @@ jobs:
           name: tools-${{ matrix.arch }}
           path: mkosi.output/kernel/
 
+      - name: Refresh apt cache
+        run: sudo apt-get update
+
       - name: setup-mkosi
         uses: systemd/mkosi@v26
 
