@@ -37,8 +37,8 @@ jobs:
           context: .
           load: true
           tags: captainos-builder
-          cache-from: type=gha,scope=builder
-          cache-to: type=gha,scope=builder,mode=max
+          cache-from: type=gha,scope=builder-${{ matrix.arch }}
+          cache-to: type=gha,scope=builder-${{ matrix.arch }},mode=max
 
       - name: Restore kernel cache
         id: kernel-cache
