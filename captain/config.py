@@ -89,9 +89,28 @@ class Config:
         )
 
     @property
-    def kernel_output(self) -> Path:
-        return self.project_dir / "mkosi.output" / "kernel"
+    def extra_tree_output(self) -> Path:
+        """Per-arch mkosi ExtraTrees staging directory.
+
+        Everything placed here (kernel modules, tools, etc.) is merged
+        into the initramfs CPIO by mkosi via ``--extra-tree=``.
+        """
+        return self.project_dir / "mkosi.output" / "extra-tree" / self.arch
+
+    @property
+    def vmlinuz_output(self) -> Path:
+        """Per-arch directory for the vmlinuz kernel image.
+
+        Kept outside ExtraTrees so the kernel binary is not packed into
+        the initramfs CPIO — iPXE loads it separately.
+        """
+        return self.project_dir / "mkosi.output" / "vmlinuz" / self.arch
 
     @property
     def mkosi_output(self) -> Path:
         return self.project_dir / "mkosi.output"
+
+    @property
+    def initramfs_output(self) -> Path:
+        """Per-arch directory for mkosi initramfs output (image.cpio.zst)."""
+        return self.project_dir / "mkosi.output" / "initramfs" / self.arch

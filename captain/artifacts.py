@@ -32,10 +32,10 @@ def _human_size(size: int) -> str:
 
 
 def collect_kernel(cfg: Config, logger: StageLogger | None = None) -> None:
-    """Copy just the kernel image from mkosi.output/vmlinuz/ to out/."""
+    """Copy just the kernel image from mkosi.output/vmlinuz/{arch}/ to out/."""
     _log = logger or _default_log
     out = ensure_dir(cfg.output_dir)
-    vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+    vmlinuz_dir = cfg.vmlinuz_output
     vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     if vmlinuz_files:
         vmlinuz_src = vmlinuz_files[0]
@@ -43,7 +43,7 @@ def collect_kernel(cfg: Config, logger: StageLogger | None = None) -> None:
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
         _log.log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        _log.warn("No kernel image found in mkosi.output/vmlinuz/")
+        _log.warn("No kernel image found in mkosi.output/vmlinuz/{arch}/")
 
 
 def collect(cfg: Config, logger: StageLogger | None = None) -> None:
@@ -53,18 +53,18 @@ def collect(cfg: Config, logger: StageLogger | None = None) -> None:
     out = ensure_dir(cfg.output_dir)
 
     # Find the initrd CPIO output
-    cpio_files = sorted(cfg.mkosi_output.glob("*.cpio*"))
+    cpio_files = sorted(cfg.initramfs_output.glob("*.cpio*"))
     if cpio_files:
         initrd_src = cpio_files[0]
         initrd_dst = out / f"initramfs-{cfg.arch}.cpio.zst"
         shutil.copy2(initrd_src, initrd_dst)
         _log.log(f"initramfs: {initrd_dst} ({_human_size(initrd_dst.stat().st_size)})")
     else:
-        _log.warn("No initramfs CPIO found in mkosi.output/")
+        _log.warn("No initramfs CPIO found in mkosi.output/initramfs/{arch}/")
 
     # Find the kernel image (stored outside ExtraTrees so it doesn't bloat
     # the initramfs — iPXE loads the kernel separately).
-    vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+    vmlinuz_dir = cfg.vmlinuz_output
     vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     if vmlinuz_files:
         vmlinuz_src = vmlinuz_files[0]
@@ -72,7 +72,7 @@ def collect(cfg: Config, logger: StageLogger | None = None) -> None:
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
         _log.log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        _log.warn("No kernel image found in mkosi.output/vmlinuz/")
+        _log.warn("No kernel image found in mkosi.output/vmlinuz/{arch}/")
 
     # Print checksums
     artifacts = sorted(out.iterdir())
