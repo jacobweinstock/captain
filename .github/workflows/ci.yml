@@ -130,13 +130,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: kernel-${{ matrix.arch }}
-          path: .
+          path: mkosi.output
 
       - name: Download tools artifacts
         uses: actions/download-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
-          path: .
+          path: mkosi.output/kernel
 
       - name: Refresh apt cache
         run: sudo apt-get update
