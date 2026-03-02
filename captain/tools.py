@@ -15,8 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from captain.config import Config
-from captain.log import log
+from captain.log import for_stage
 from captain.util import ensure_dir
+
+_log = for_stage("tools")
 
 
 @dataclass(slots=True)
@@ -86,7 +88,7 @@ def _check_binary(dest_dir: Path, tool: ToolSpec) -> str | None:
 
 def _download_tarball(url: str, dest_dir: Path, members: list[str]) -> None:
     """Download a gzipped tarball and extract specific members."""
-    log(f"    Downloading {url}")
+    _log.log(f"    Downloading {url}")
     with urllib.request.urlopen(url) as resp:
         data = resp.read()
 
@@ -109,7 +111,7 @@ def _download_tarball(url: str, dest_dir: Path, members: list[str]) -> None:
 
 def _download_binary(url: str, dest: Path) -> None:
     """Download a single binary file."""
-    log(f"    Downloading {url}")
+    _log.log(f"    Downloading {url}")
     urllib.request.urlretrieve(url, dest)
     dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -119,11 +121,11 @@ def download_tool(tool: ToolSpec, arch: str, output_base: Path, force: bool) -> 
     dest_dir = ensure_dir(output_base / tool.dest)
 
     if not force and _check_binary(dest_dir, tool):
-        log(f"{tool.name} already present (set FORCE_TOOLS=1 to re-download)")
+        _log.log(f"{tool.name} already present (set FORCE_TOOLS=1 to re-download)")
         return
 
     url = tool.url_template.format(version=tool.version, arch=arch)
-    log(f"Installing {tool.name} {tool.version} ({arch})...")
+    _log.log(f"Installing {tool.name} {tool.version} ({arch})...")
 
     if tool.members is not None:
         # Tarball with selective extraction
@@ -137,16 +139,16 @@ def download_tool(tool: ToolSpec, arch: str, output_base: Path, force: bool) -> 
         p = dest_dir / name
         if p.exists():
             p.unlink()
-            log(f"    Removed leftover: {p.name}")
+            _log.log(f"    Removed leftover: {p.name}")
 
     # Report installed files
     if tool.members:
         for m in tool.members:
             p = dest_dir / Path(m).name
             if p.exists():
-                log(f"    {tool.name}: {p}")
+                _log.log(f"    {tool.name}: {p}")
     elif tool.binary_name:
-        log(f"    {tool.name}: {dest_dir / tool.binary_name}")
+        _log.log(f"    {tool.name}: {dest_dir / tool.binary_name}")
 
 
 def download_all(cfg: Config) -> None:
@@ -157,9 +159,9 @@ def download_all(cfg: Config) -> None:
     for tool in TOOLS:
         download_tool(tool, arch, output_base, cfg.force_tools)
 
-    log("Tool download complete.")
+    _log.log("Tool download complete.")
 
     # NOTE: UPX compression is not used. The final image is cpio.zst, and zstd
     # compresses raw ELF binaries better than UPX-packed ones (UPX output looks
     # like random data to zstd, defeating its compression).
-    log("All tools ready.")
+    _log.log("All tools ready.")

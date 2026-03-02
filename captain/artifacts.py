@@ -7,8 +7,10 @@ import shutil
 from pathlib import Path
 
 from captain.config import Config
-from captain.log import log, warn
+from captain.log import StageLogger, for_stage
 from captain.util import ensure_dir
+
+_default_log = for_stage("artifacts")
 
 
 def _sha256(path: Path) -> str:
@@ -29,8 +31,9 @@ def _human_size(size: int) -> str:
     return f"{size:.1f}T"
 
 
-def collect_kernel(cfg: Config) -> None:
+def collect_kernel(cfg: Config, logger: StageLogger | None = None) -> None:
     """Copy just the kernel image from mkosi.output/vmlinuz/ to out/."""
+    _log = logger or _default_log
     out = ensure_dir(cfg.output_dir)
     vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
     vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
@@ -38,14 +41,15 @@ def collect_kernel(cfg: Config) -> None:
         vmlinuz_src = vmlinuz_files[0]
         vmlinuz_dst = out / f"vmlinuz-{cfg.arch}"
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
-        log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
+        _log.log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        warn("No kernel image found in mkosi.output/vmlinuz/")
+        _log.warn("No kernel image found in mkosi.output/vmlinuz/")
 
 
-def collect(cfg: Config) -> None:
+def collect(cfg: Config, logger: StageLogger | None = None) -> None:
     """Copy initramfs and kernel images from mkosi.output/ to out/."""
-    log("Collecting build artifacts...")
+    _log = logger or _default_log
+    _log.log("Collecting build artifacts...")
     out = ensure_dir(cfg.output_dir)
 
     # Find the initrd CPIO output
@@ -54,9 +58,9 @@ def collect(cfg: Config) -> None:
         initrd_src = cpio_files[0]
         initrd_dst = out / f"initramfs-{cfg.arch}.cpio.zst"
         shutil.copy2(initrd_src, initrd_dst)
-        log(f"initramfs: {initrd_dst} ({_human_size(initrd_dst.stat().st_size)})")
+        _log.log(f"initramfs: {initrd_dst} ({_human_size(initrd_dst.stat().st_size)})")
     else:
-        warn("No initramfs CPIO found in mkosi.output/")
+        _log.warn("No initramfs CPIO found in mkosi.output/")
 
     # Find the kernel image (stored outside ExtraTrees so it doesn't bloat
     # the initramfs — iPXE loads the kernel separately).
@@ -66,14 +70,14 @@ def collect(cfg: Config) -> None:
         vmlinuz_src = vmlinuz_files[0]
         vmlinuz_dst = out / f"vmlinuz-{cfg.arch}"
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
-        log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
+        _log.log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        warn("No kernel image found in mkosi.output/vmlinuz/")
+        _log.warn("No kernel image found in mkosi.output/vmlinuz/")
 
     # Print checksums
     artifacts = sorted(out.iterdir())
     if artifacts:
-        log("Checksums:")
+        _log.log("Checksums:")
         for artifact in artifacts:
             if artifact.is_file():
                 digest = _sha256(artifact)

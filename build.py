@@ -2,7 +2,7 @@
 """CaptainOS build system entry point.
 
 Usage:
-    ./build.py              # Build the image (all stages)
+    ./build.py              # Build the image (stages: kernel → tools → initramfs)
     ./build.py build        # Same as above
     ./build.py kernel       # Build only the kernel + modules
     ./build.py tools        # Download tools (containerd, runc, nerdctl, CNI)

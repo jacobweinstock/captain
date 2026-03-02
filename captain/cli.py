@@ -11,7 +11,7 @@ from pathlib import Path
 
 from captain import artifacts, docker, kernel, qemu, tools
 from captain.config import Config
-from captain.log import err, log
+from captain.log import for_stage
 from captain.util import check_kernel_dependencies, check_mkosi_dependencies, run
 
 
@@ -21,34 +21,36 @@ from captain.util import check_kernel_dependencies, check_mkosi_dependencies, ru
 
 def _build_kernel_stage(cfg: Config) -> None:
     """Run the kernel + tools build stage according to *cfg.kernel_mode*."""
+    klog = for_stage("kernel")
+    tlog = for_stage("tools")
     match cfg.kernel_mode:
         case "skip":
-            log("KERNEL_MODE=skip — skipping kernel & tools")
+            klog.log("KERNEL_MODE=skip — skipping kernel & tools")
             return
         case "native":
             missing = check_kernel_dependencies(cfg.arch)
             if missing:
-                err(f"Missing kernel build tools: {', '.join(missing)}")
-                err("Install them or set KERNEL_MODE=docker.")
+                klog.err(f"Missing kernel build tools: {', '.join(missing)}")
+                klog.err("Install them or set KERNEL_MODE=docker.")
                 raise SystemExit(1)
             # Kernel
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
-                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
-                log("Building kernel (native)...")
+                klog.log("Building kernel (native)...")
                 kernel.build(cfg)
             # Tools
-            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             tools.download_all(cfg)
         case "docker":
-            docker.build_builder(cfg)
+            docker.build_builder(cfg, logger=klog)
             # Kernel
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
-                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
-                log("Building kernel (docker)...")
+                klog.log("Building kernel (docker)...")
                 docker.run_in_builder(
                     cfg,
                     "--entrypoint",
@@ -57,7 +59,7 @@ def _build_kernel_stage(cfg: Config) -> None:
                     "/work/scripts/build-kernel.py",
                 )
             # Tools
-            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             docker.run_in_builder(
                 cfg,
                 "--entrypoint",
@@ -72,7 +74,7 @@ def _build_kernel_stage(cfg: Config) -> None:
             if cfg.mkosi_mode == "native":
                 uid = os.getuid()
                 gid = os.getgid()
-                log("Fixing ownership of mkosi.output/ for native mkosi...")
+                tlog.log("Fixing ownership of mkosi.output/ for native mkosi...")
                 run(
                     [
                         "docker", "run", "--rm",
@@ -86,17 +88,18 @@ def _build_kernel_stage(cfg: Config) -> None:
 
 def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
     """Run the mkosi image-assembly stage according to *cfg.mkosi_mode*."""
+    ilog = for_stage("initramfs")
     match cfg.mkosi_mode:
         case "skip":
-            log("MKOSI_MODE=skip — skipping image assembly")
+            ilog.log("MKOSI_MODE=skip — skipping image assembly")
             return
         case "native":
             missing = check_mkosi_dependencies()
             if missing:
-                err(f"Missing mkosi tools: {', '.join(missing)}")
-                err("Install them or set MKOSI_MODE=docker.")
+                ilog.err(f"Missing mkosi tools: {', '.join(missing)}")
+                ilog.err("Install them or set MKOSI_MODE=docker.")
                 raise SystemExit(1)
-            log("Building initrd with mkosi (native)...")
+            ilog.log("Building initrd with mkosi (native)...")
             mkosi_args = list(cfg.mkosi_args) + list(extra_args)
             run(
                 [
@@ -110,10 +113,10 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
         case "docker":
             if cfg.kernel_mode != "docker":
                 # Builder image may not have been built yet
-                docker.build_builder(cfg)
-            log("Building initrd with mkosi (docker)...")
+                docker.build_builder(cfg, logger=ilog)
+            ilog.log("Building initrd with mkosi (docker)...")
             mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-            docker.run_mkosi(cfg, "build", *mkosi_args)
+            docker.run_mkosi(cfg, "build", *mkosi_args, logger=ilog)
 
 
 # ---------------------------------------------------------------------------
@@ -122,29 +125,30 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
 
 def _cmd_kernel(cfg: Config, _extra_args: list[str]) -> None:
     """Build only the kernel (no tools, no mkosi)."""
+    klog = for_stage("kernel")
     match cfg.kernel_mode:
         case "skip":
-            log("KERNEL_MODE=skip — skipping kernel build")
+            klog.log("KERNEL_MODE=skip — skipping kernel build")
             return
         case "native":
             missing = check_kernel_dependencies(cfg.arch)
             if missing:
-                err(f"Missing kernel build tools: {', '.join(missing)}")
-                err("Install them or set KERNEL_MODE=docker.")
+                klog.err(f"Missing kernel build tools: {', '.join(missing)}")
+                klog.err("Install them or set KERNEL_MODE=docker.")
                 raise SystemExit(1)
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
-                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
-                log("Building kernel (native)...")
+                klog.log("Building kernel (native)...")
                 kernel.build(cfg)
         case "docker":
-            docker.build_builder(cfg)
+            docker.build_builder(cfg, logger=klog)
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
-                log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
-                log("Building kernel (docker)...")
+                klog.log("Building kernel (docker)...")
                 docker.run_in_builder(
                     cfg,
                     "--entrypoint",
@@ -153,23 +157,24 @@ def _cmd_kernel(cfg: Config, _extra_args: list[str]) -> None:
                     "/work/scripts/build-kernel.py",
                 )
     # Copy vmlinuz to the standard out/ directory.
-    artifacts.collect_kernel(cfg)
-    log("Kernel build stage complete!")
+    artifacts.collect_kernel(cfg, logger=klog)
+    klog.log("Kernel build stage complete!")
 
 
 def _cmd_tools(cfg: Config, _extra_args: list[str]) -> None:
     """Download tools (containerd, runc, nerdctl, CNI plugins)."""
+    tlog = for_stage("tools")
     match cfg.kernel_mode:
         case "skip":
             # When kernel_mode is skip we still download tools directly
-            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             tools.download_all(cfg)
         case "native":
-            log("Downloading tools (nerdctl, containerd, etc.)...")
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             tools.download_all(cfg)
         case "docker":
-            docker.build_builder(cfg)
-            log("Downloading tools (nerdctl, containerd, etc.)...")
+            docker.build_builder(cfg, logger=tlog)
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             docker.run_in_builder(
                 cfg,
                 "--entrypoint",
@@ -177,7 +182,7 @@ def _cmd_tools(cfg: Config, _extra_args: list[str]) -> None:
                 cfg.builder_image,
                 "/work/scripts/download-tools.py",
             )
-    log("Tools stage complete!")
+    tlog.log("Tools stage complete!")
 
 
 def _check_kernel_modules(cfg: Config) -> None:
@@ -188,55 +193,60 @@ def _check_kernel_modules(cfg: Config) -> None:
     issue) the build should fail immediately rather than silently
     producing an initramfs without modules.
     """
+    ilog = for_stage("initramfs")
     modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
     if not modules_dir.is_dir():
-        err(f"Kernel modules directory not found: {modules_dir}")
-        err("Ensure the kernel build artifacts are downloaded correctly.")
+        ilog.err(f"Kernel modules directory not found: {modules_dir}")
+        ilog.err("Ensure the kernel build artifacts are downloaded correctly.")
         raise SystemExit(1)
     # Check that at least one module version directory exists with modules
     version_dirs = [d for d in modules_dir.iterdir() if d.is_dir()]
     if not version_dirs:
-        err(f"No kernel version directories found in {modules_dir}")
+        ilog.err(f"No kernel version directories found in {modules_dir}")
         raise SystemExit(1)
     has_modules = any(
         version_dirs[0].rglob("*.ko*")
     )
     if not has_modules:
-        err(f"No kernel modules (.ko/.ko.zst) found in {version_dirs[0]}")
+        ilog.err(f"No kernel modules (.ko/.ko.zst) found in {version_dirs[0]}")
         raise SystemExit(1)
-    log(f"Kernel modules found: {version_dirs[0].name}")
+    ilog.log(f"Kernel modules found: {version_dirs[0].name}")
 
 
 def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:
     """Build only the initramfs via mkosi, then collect artifacts."""
+    ilog = for_stage("initramfs")
     _check_kernel_modules(cfg)
     _build_mkosi_stage(cfg, extra_args)
-    artifacts.collect(cfg)
-    log("Initramfs build complete!")
+    artifacts.collect(cfg, logger=ilog)
+    ilog.log("Initramfs build complete!")
 
 
 def _cmd_build(cfg: Config, extra_args: list[str]) -> None:
-    """Full build: kernel → tools → mkosi → artifacts."""
+    """Full build: kernel → tools → initramfs → artifacts."""
+    blog = for_stage("build")
     _build_kernel_stage(cfg)
     _build_mkosi_stage(cfg, extra_args)
-    artifacts.collect(cfg)
-    log("Build complete!")
+    artifacts.collect(cfg, logger=blog)
+    blog.log("Build complete!")
 
 
 def _cmd_shell(cfg: Config, _extra_args: list[str]) -> None:
     """Interactive shell inside the builder container."""
+    slog = for_stage("shell")
     if not cfg.needs_docker:
-        err("'shell' requires at least one stage using Docker.")
-        err("Set KERNEL_MODE=docker or MKOSI_MODE=docker.")
+        slog.err("'shell' requires at least one stage using Docker.")
+        slog.err("Set KERNEL_MODE=docker or MKOSI_MODE=docker.")
         raise SystemExit(1)
-    docker.build_builder(cfg)
-    log("Entering builder shell (type 'exit' to leave)...")
+    docker.build_builder(cfg, logger=slog)
+    slog.log("Entering builder shell (type 'exit' to leave)...")
     docker.run_in_builder(cfg, "-it", "--entrypoint", "/bin/bash", cfg.builder_image)
 
 
 def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
     """Remove all build artifacts."""
-    log("Cleaning build artifacts...")
+    clog = for_stage("clean")
+    clog.log("Cleaning build artifacts...")
     mkosi_output = cfg.mkosi_output
     mkosi_cache = cfg.project_dir / "mkosi.cache"
 
@@ -272,22 +282,23 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
 
     if cfg.output_dir.exists():
         shutil.rmtree(cfg.output_dir)
-    log("Clean complete.")
+    clog.log("Clean complete.")
 
 
 def _cmd_summary(cfg: Config, _extra_args: list[str]) -> None:
     """Print mkosi configuration summary."""
+    slog = for_stage("summary")
     match cfg.mkosi_mode:
         case "docker":
-            docker.build_builder(cfg)
-            docker.run_mkosi(cfg, "summary")
+            docker.build_builder(cfg, logger=slog)
+            docker.run_mkosi(cfg, "summary", logger=slog)
         case "native":
             run(
                 ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", "summary"],
                 cwd=cfg.project_dir,
             )
         case "skip":
-            err("Cannot show mkosi summary when MKOSI_MODE=skip.")
+            slog.err("Cannot show mkosi summary when MKOSI_MODE=skip.")
             raise SystemExit(1)
 
 
@@ -331,13 +342,16 @@ examples:
 
     parser = ArgumentParser(
         prog="build.py",
-        description="Build CaptainOS images using mkosi inside Docker.",
+        description="Build CaptainOS images. Stages: kernel → tools → initramfs.",
         epilog=env_help,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("build", help="Build the CaptainOS image (default)")
+    sub.add_parser(
+        "build",
+        help="Run all build stages: kernel → tools → initramfs (default)",
+    )
     sub.add_parser("kernel", help="Build only the kernel + modules")
     sub.add_parser("tools", help="Download tools (containerd, runc, nerdctl, CNI)")
     sub.add_parser("initramfs", help="Build only the initramfs via mkosi")
@@ -416,15 +430,16 @@ example:
         handler(cfg, remaining)
     else:
         # Pass through to mkosi
+        mlog = for_stage("mkosi")
         match cfg.mkosi_mode:
             case "docker":
-                docker.build_builder(cfg)
-                docker.run_mkosi(cfg, command, *remaining)
+                docker.build_builder(cfg, logger=mlog)
+                docker.run_mkosi(cfg, command, *remaining, logger=mlog)
             case "native":
                 run(
                     ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", command, *remaining],
                     cwd=cfg.project_dir,
                 )
             case "skip":
-                err(f"Cannot pass '{command}' to mkosi when MKOSI_MODE=skip.")
+                mlog.err(f"Cannot pass '{command}' to mkosi when MKOSI_MODE=skip.")
                 raise SystemExit(1)

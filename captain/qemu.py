@@ -6,8 +6,10 @@ import os
 import sys
 
 from captain.config import Config
-from captain.log import err, log, warn
+from captain.log import for_stage
 from captain.util import run
+
+_log = for_stage("qemu")
 
 # Tinkerbell kernel cmdline parameters read from environment variables.
 # With QEMU user-mode networking the host is reachable at 10.0.2.2, so
@@ -58,24 +60,24 @@ def run_qemu(cfg: Config) -> None:
     initrd = cfg.output_dir / f"initramfs-{cfg.arch}.cpio.zst"
 
     if not kernel.is_file() or not initrd.is_file():
-        err("Build artifacts not found. Run './build.py' first.")
+        _log.err("Build artifacts not found. Run './build.py' first.")
         sys.exit(1)
 
     tink = _tink_cmdline()
     if not any(
         os.environ.get(v) for v in ("TINK_WORKER_IMAGE", "TINK_DOCKER_REGISTRY")
     ):
-        warn(
+        _log.warn(
             "Neither TINK_WORKER_IMAGE nor TINK_DOCKER_REGISTRY is set. "
             "tink-agent services will not start."
         )
 
-    log("Booting CaptainOS in QEMU (Ctrl-A X to exit)...")
+    _log.log("Booting CaptainOS in QEMU (Ctrl-A X to exit)...")
 
     qemu_cmd = cfg.arch_info.qemu_binary
     append = f"console=ttyS0 audit=0 {tink} {cfg.qemu_append}".strip()
 
-    log(f"Kernel cmdline: {append}")
+    _log.log(f"Kernel cmdline: {append}")
     run(
         [
             qemu_cmd,

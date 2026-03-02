@@ -15,8 +15,10 @@ import urllib.request
 from pathlib import Path
 
 from captain.config import Config
-from captain.log import log, warn
+from captain.log import for_stage
 from captain.util import ensure_dir, run
+
+_log = for_stage("kernel")
 
 
 def _progress_hook(block_num: int, block_size: int, total_size: int) -> None:
@@ -36,19 +38,19 @@ def download_kernel(version: str, dest_dir: Path) -> Path:
     """Download and extract a kernel tarball.  Returns the source directory."""
     src_dir = dest_dir / f"linux-{version}"
     if src_dir.is_dir():
-        log(f"Using cached kernel source at {src_dir}")
+        _log.log(f"Using cached kernel source at {src_dir}")
         return src_dir
 
     major = version.split(".")[0]
     url = f"https://cdn.kernel.org/pub/linux/kernel/v{major}.x/linux-{version}.tar.xz"
     tarball = dest_dir / f"linux-{version}.tar.xz"
 
-    log(f"Downloading kernel {version}...")
+    _log.log(f"Downloading kernel {version}...")
     ensure_dir(dest_dir)
     urllib.request.urlretrieve(url, tarball, reporthook=_progress_hook)
     print()  # newline after progress
 
-    log("Extracting kernel source...")
+    _log.log("Extracting kernel source...")
     with tarfile.open(tarball, "r:xz") as tf:
         tf.extractall(path=dest_dir, filter="data")
     tarball.unlink()
@@ -66,20 +68,20 @@ def configure_kernel(cfg: Config, src_dir: Path) -> None:
         make_env["CROSS_COMPILE"] = ai.cross_compile
 
     if defconfig.is_file():
-        log(f"Using defconfig: {defconfig}")
+        _log.log(f"Using defconfig: {defconfig}")
         shutil.copy2(defconfig, src_dir / ".config")
         run(["make", "olddefconfig"], env=make_env, cwd=src_dir)
         # Save the resolved config for debugging
         resolved = cfg.project_dir / "config" / f".config.resolved.{ai.arch}"
         shutil.copy2(src_dir / ".config", resolved)
-        log(f"Resolved config saved to config/.config.resolved.{ai.arch}")
+        _log.log(f"Resolved config saved to config/.config.resolved.{ai.arch}")
     else:
-        log(f"No defconfig found at {defconfig}, using default")
+        _log.log(f"No defconfig found at {defconfig}, using default")
         run(["make", "defconfig"], env=make_env, cwd=src_dir)
 
     # Increase COMMAND_LINE_SIZE on x86_64 (Tinkerbell needs large cmdlines)
     if ai.kernel_arch == "x86_64":
-        log("Increasing COMMAND_LINE_SIZE to 4096 (x86_64)...")
+        _log.log("Increasing COMMAND_LINE_SIZE to 4096 (x86_64)...")
         setup_h = src_dir / "arch" / "x86" / "include" / "asm" / "setup.h"
         text = setup_h.read_text()
         text = re.sub(
@@ -99,7 +101,7 @@ def build_kernel(cfg: Config, src_dir: Path) -> str:
     if ai.cross_compile:
         make_env["CROSS_COMPILE"] = ai.cross_compile
 
-    log(f"Building kernel with {nproc} jobs...")
+    _log.log(f"Building kernel with {nproc} jobs...")
     run(
         ["make", f"-j{nproc}", ai.image_target, "modules"],
         env=make_env,
@@ -114,7 +116,7 @@ def build_kernel(cfg: Config, src_dir: Path) -> str:
         cwd=src_dir,
     )
     built_kver = result.stdout.strip()
-    log(f"Built kernel version: {built_kver}")
+    _log.log(f"Built kernel version: {built_kver}")
     return built_kver
 
 
@@ -128,7 +130,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
         make_env["CROSS_COMPILE"] = ai.cross_compile
 
     # Install modules
-    log("Installing modules...")
+    _log.log("Installing modules...")
     run(
         ["make", f"INSTALL_MOD_PATH={kernel_output}", "modules_install"],
         env=make_env,
@@ -136,7 +138,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     )
 
     # Strip debug symbols from modules
-    log("Stripping debug symbols from modules...")
+    _log.log("Stripping debug symbols from modules...")
     strip_cmd = f"{ai.strip_prefix}strip"
     for ko in kernel_output.rglob("*.ko"):
         run([strip_cmd, "--strip-unneeded", str(ko)], check=False)
@@ -145,7 +147,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     # and CONFIG_MODULE_DECOMPRESS so the kernel can load .ko.zst at runtime).
     # We compress explicitly here because the build container's modules_install
     # may not always invoke zstd, and stripping must happen before compression.
-    log("Compressing kernel modules with zstd...")
+    _log.log("Compressing kernel modules with zstd...")
     for ko in kernel_output.rglob("*.ko"):
         run(["zstd", "--rm", "-q", "-19", str(ko)], check=True)
 
@@ -169,7 +171,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
         shutil.rmtree(kernel_output / "lib", ignore_errors=True)
 
     # Regenerate module dependency metadata for the compressed .ko.zst files.
-    log("Running depmod for compressed modules...")
+    _log.log("Running depmod for compressed modules...")
     run(
         ["depmod", "-a", "-b", str(kernel_output / "usr"), built_kver],
         check=True,
@@ -181,13 +183,13 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     vmlinuz_dir = ensure_dir(kernel_output.parent / "vmlinuz")
     shutil.copy2(kernel_image, vmlinuz_dir / f"vmlinuz-{built_kver}")
 
-    log("Kernel build complete:")
+    _log.log("Kernel build complete:")
     vmlinuz = vmlinuz_dir / f"vmlinuz-{built_kver}"
     vmlinuz_size = vmlinuz.stat().st_size / (1024 * 1024)
-    log(f"    Image:   {vmlinuz} ({vmlinuz_size:.1f}M)")
-    log(f"    Modules: {usr_moddir}/")
-    log(f"    Version: {built_kver}")
-    log(f"    Output:  {kernel_output}")
+    _log.log(f"    Image:   {vmlinuz} ({vmlinuz_size:.1f}M)")
+    _log.log(f"    Modules: {usr_moddir}/")
+    _log.log(f"    Version: {built_kver}")
+    _log.log(f"    Output:  {kernel_output}")
 
 
 def build(cfg: Config) -> None:
@@ -201,7 +203,7 @@ def build(cfg: Config) -> None:
 
     # Obtain kernel source
     if cfg.kernel_src and Path(cfg.kernel_src).is_dir():
-        log(f"Using provided kernel source at {cfg.kernel_src}")
+        _log.log(f"Using provided kernel source at {cfg.kernel_src}")
         src_dir = Path(cfg.kernel_src)
     else:
         src_dir = download_kernel(cfg.kernel_version, build_dir)
