@@ -4,12 +4,15 @@ A minimal, systemd-based in-memory OS for [Tinkerbell](https://tinkerbell.org) b
 
 CaptainOS boots via PXE/iPXE, runs entirely from RAM as a compressed CPIO initramfs, and provides a container runtime environment for the [tink-agent](https://github.com/tinkerbell/tinkerbell) — the component that drives hardware provisioning workflows.
 
-## Output sizes (amd64)
+## Why does CaptainOS exist?
 
-| Artifact | Size |
-| --- | --- |
-| `initramfs-amd64.cpio.zst` | ~88 MB |
-| `vmlinuz-amd64` | ~9.5 MB |
+CaptainOS is the next generation of Tinkerbell's in-memory OS, building on years of experience building, maintaining, and operating [HookOS](https://github.com/tinkerbell/hook) in production.
+It is built with [mkosi](https://github.com/systemd/mkosi), producing a minimal systemd-based Debian OS that runs entirely from RAM.
+
+- **Significantly smaller initramfs** — small enough to boot comfortably on resource-constrained single-board computers.
+- **No Docker-in-Docker** — tink-agent runs directly on the host with containerd, giving it native access to the container runtime without any nesting.
+- **Familiar operations** — systemd foundation with journalctl, networkd, and standard service management make debugging and troubleshooting straightforward.
+- **Simpler architecture** — fewer layers between hardware and workload, easier to develop against and extend.
 
 ## How it works
 
