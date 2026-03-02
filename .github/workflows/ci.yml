@@ -53,7 +53,7 @@ jobs:
           path: |
             mkosi.output/kernel/usr/lib/modules
             mkosi.output/vmlinuz
-          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'captain/kernel.py', 'Dockerfile') }}
+          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
 
       - name: Build kernel
         run: ./build.py kernel
