@@ -20,6 +20,33 @@ from captain.util import ensure_dir, run, safe_extractall
 
 _log = for_stage("kernel")
 
+_DOWNLOAD_TIMEOUT = 60  # seconds
+
+
+def _urlretrieve_with_timeout(
+    url: str,
+    filename: Path | str,
+    *,
+    reporthook: object = None,
+    timeout: int = _DOWNLOAD_TIMEOUT,
+) -> None:
+    """Like urllib.request.urlretrieve but with a socket timeout."""
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        headers = resp.info()
+        total = int(headers.get("Content-Length", -1))
+        block_size = 8192
+        block_num = 0
+        with open(filename, "wb") as out:
+            while True:
+                buf = resp.read(block_size)
+                if not buf:
+                    break
+                out.write(buf)
+                block_num += 1
+                if reporthook is not None:
+                    reporthook(block_num, block_size, total)  # type: ignore[operator]
+
 
 def _progress_hook(block_num: int, block_size: int, total_size: int) -> None:
     """Simple download progress indicator."""
@@ -47,7 +74,7 @@ def download_kernel(version: str, dest_dir: Path) -> Path:
 
     _log.log(f"Downloading kernel {version}...")
     ensure_dir(dest_dir)
-    urllib.request.urlretrieve(url, tarball, reporthook=_progress_hook)
+    _urlretrieve_with_timeout(url, tarball, reporthook=_progress_hook)
     print()  # newline after progress
 
     _log.log("Extracting kernel source...")
@@ -181,6 +208,12 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     # inside the initramfs CPIO.  iPXE loads the kernel separately.
     kernel_image = src_dir / ai.kernel_image_path
     vmlinuz_dir = ensure_dir(kernel_output.parent / "vmlinuz")
+
+    # Remove stale vmlinuz images from prior builds so artifact collection
+    # never picks an outdated kernel.
+    for old in vmlinuz_dir.glob("vmlinuz-*"):
+        old.unlink(missing_ok=True)
+
     shutil.copy2(kernel_image, vmlinuz_dir / f"vmlinuz-{built_kver}")
 
     _log.log("Kernel build complete:")

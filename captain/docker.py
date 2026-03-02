@@ -52,6 +52,10 @@ def build_builder(cfg: Config, logger: StageLogger | None = None) -> None:
 
     if not cfg.no_cache and _image_exists(tagged_image):
         _log.log(f"Docker image '{cfg.builder_image}' is up to date.")
+        # Ensure the un-hashed tag exists so later docker-run calls that
+        # reference cfg.builder_image (without the hash suffix) succeed.
+        # This matters when the hashed tag was pre-loaded by CI.
+        run(["docker", "tag", tagged_image, cfg.builder_image], check=False)
         return
 
     _log.log(f"Building Docker image '{cfg.builder_image}'...")

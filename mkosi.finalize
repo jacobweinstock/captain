@@ -72,16 +72,17 @@ if [[ -d "$MODDIR" ]]; then
         find "$MODDIR" -path "$pattern" -type d -exec rm -rf {} + 2>/dev/null || true
     done
 
+    AFTER=$(du -sb "$MODDIR" | awk '{print $1}')
+    SAVED=$(( (BEFORE - AFTER) / 1024 / 1024 ))
+    [[ $SAVED -lt 0 ]] && SAVED=0
+    echo "    Removed ${SAVED}MB of unnecessary kernel modules"
+
     # Regenerate module dependency files after removal for all kernel versions
     for kdir in "$MODDIR"/*; do
         [[ -d "$kdir" ]] || continue
         kver=$(basename "$kdir")
         depmod -a -b "$BUILDROOT/usr" "$kver"
     done
-
-    AFTER=$(du -sb "$MODDIR" | awk '{print $1}')
-    SAVED=$(( (BEFORE - AFTER) / 1024 / 1024 ))
-    echo "    Removed ${SAVED}MB of unnecessary kernel modules"
 fi
 
 echo "==> CaptainOS finalize complete."

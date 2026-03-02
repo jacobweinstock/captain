@@ -91,7 +91,7 @@ def _check_binary(dest_dir: Path, tool: ToolSpec) -> str | None:
 def _download_tarball(url: str, dest_dir: Path, members: list[str]) -> None:
     """Download a gzipped tarball and extract specific members."""
     _log.log(f"    Downloading {url}")
-    with urllib.request.urlopen(url) as resp:
+    with urllib.request.urlopen(url, timeout=60) as resp:
         data = resp.read()
 
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
@@ -114,7 +114,10 @@ def _download_tarball(url: str, dest_dir: Path, members: list[str]) -> None:
 def _download_binary(url: str, dest: Path) -> None:
     """Download a single binary file."""
     _log.log(f"    Downloading {url}")
-    urllib.request.urlretrieve(url, dest)
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(resp.read())
     dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
