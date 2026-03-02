@@ -174,13 +174,15 @@ def _check_kernel_modules(cfg: Config) -> None:
     if not version_dirs:
         ilog.err(f"No kernel version directories found in {modules_dir}")
         raise SystemExit(1)
-    has_modules = any(
-        version_dirs[0].rglob("*.ko*")
-    )
-    if not has_modules:
-        ilog.err(f"No kernel modules (.ko/.ko.zst) found in {version_dirs[0]}")
-        raise SystemExit(1)
-    ilog.log(f"Kernel modules found: {version_dirs[0].name}")
+    # Search all version directories for at least one kernel module
+    for version_dir in version_dirs:
+        if any(version_dir.rglob("*.ko*")):
+            ilog.log(f"Kernel modules found in {version_dir} (version: {version_dir.name})")
+            return
+    searched = ", ".join(str(d) for d in version_dirs)
+    ilog.err("No kernel modules (.ko/.ko.zst) found in any kernel version directory.")
+    ilog.err(f"Searched directories: {searched}")
+    raise SystemExit(1)
 
 
 def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:

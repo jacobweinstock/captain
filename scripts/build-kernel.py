@@ -13,5 +13,13 @@ sys.path.insert(0, "/work")
 from captain.config import Config
 from captain.kernel import build
 
-cfg = Config.from_env(Path("/work"))
-build(cfg)
+
+def main() -> int:
+    """Entry point for building the Linux kernel inside the container."""
+    cfg = Config.from_env(Path("/work"))
+    result = build(cfg)
+    return 0 if result is None else result
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

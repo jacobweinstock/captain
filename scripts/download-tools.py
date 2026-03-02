@@ -13,5 +13,13 @@ sys.path.insert(0, "/work")
 from captain.config import Config
 from captain.tools import download_all
 
-cfg = Config.from_env(Path("/work"))
-download_all(cfg)
+
+def main() -> int:
+    """Entry point for downloading tools inside the container."""
+    cfg = Config.from_env(Path("/work"))
+    download_all(cfg)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
