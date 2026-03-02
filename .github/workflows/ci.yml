@@ -68,7 +68,6 @@ jobs:
           path: |
             mkosi.output/kernel/usr/lib/modules
             mkosi.output/vmlinuz
-            out/vmlinuz-${{ matrix.arch }}
           retention-days: 1
 
   # -------------------------------------------------------------------

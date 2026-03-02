@@ -180,8 +180,36 @@ def _cmd_tools(cfg: Config, _extra_args: list[str]) -> None:
     log("Tools stage complete!")
 
 
+def _check_kernel_modules(cfg: Config) -> None:
+    """Verify kernel modules exist before building the initramfs.
+
+    The initramfs depends on pre-built kernel modules in the ExtraTrees
+    directory.  If they are missing (e.g. due to an artifact download
+    issue) the build should fail immediately rather than silently
+    producing an initramfs without modules.
+    """
+    modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+    if not modules_dir.is_dir():
+        err(f"Kernel modules directory not found: {modules_dir}")
+        err("Ensure the kernel build artifacts are downloaded correctly.")
+        raise SystemExit(1)
+    # Check that at least one module version directory exists with modules
+    version_dirs = [d for d in modules_dir.iterdir() if d.is_dir()]
+    if not version_dirs:
+        err(f"No kernel version directories found in {modules_dir}")
+        raise SystemExit(1)
+    has_modules = any(
+        version_dirs[0].rglob("*.ko*")
+    )
+    if not has_modules:
+        err(f"No kernel modules (.ko/.ko.zst) found in {version_dirs[0]}")
+        raise SystemExit(1)
+    log(f"Kernel modules found: {version_dirs[0].name}")
+
+
 def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:
     """Build only the initramfs via mkosi, then collect artifacts."""
+    _check_kernel_modules(cfg)
     _build_mkosi_stage(cfg, extra_args)
     artifacts.collect(cfg)
     log("Initramfs build complete!")
