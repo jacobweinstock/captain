@@ -44,11 +44,11 @@ jobs:
             captainos-builder
             captainos-builder:${{ steps.dockerfile-hash.outputs.hash }}
           cache-from: type=gha,scope=builder-${{ matrix.arch }}
-          cache-to: type=gha,scope=builder-${{ matrix.arch }},mode=max
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,scope=builder-{0},mode=max', matrix.arch) || '' }}
 
       - name: Restore kernel cache
         id: kernel-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             mkosi.output/kernel/usr/lib/modules
@@ -60,6 +60,15 @@ jobs:
 
       - name: Fix output file ownership
         run: sudo chown -R "$(id -u):$(id -g)" mkosi.output/
+
+      - name: Save kernel cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/lib/modules
+            mkosi.output/vmlinuz
+          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
@@ -89,7 +98,7 @@ jobs:
 
       - name: Restore tools cache
         id: tools-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             mkosi.output/kernel/usr/local/bin
@@ -98,6 +107,15 @@ jobs:
 
       - name: Download tools
         run: ./build.py tools
+
+      - name: Save tools cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/local/bin
+            mkosi.output/kernel/opt/cni
+          key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
 
       - name: Upload tools artifacts
         uses: actions/upload-artifact@v4
@@ -151,10 +169,3 @@ jobs:
 
       - name: Build initramfs
         run: ./build.py initramfs
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: captainos-${{ matrix.arch }}
-          path: out/
-          retention-days: 7
