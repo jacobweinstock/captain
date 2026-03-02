@@ -20,12 +20,11 @@ from captain.util import check_kernel_dependencies, check_mkosi_dependencies, ru
 # ---------------------------------------------------------------------------
 
 def _build_kernel_stage(cfg: Config) -> None:
-    """Run the kernel + tools build stage according to *cfg.kernel_mode*."""
+    """Run the kernel build stage according to *cfg.kernel_mode*."""
     klog = for_stage("kernel")
-    tlog = for_stage("tools")
     match cfg.kernel_mode:
         case "skip":
-            klog.log("KERNEL_MODE=skip — skipping kernel & tools")
+            klog.log("KERNEL_MODE=skip — skipping kernel build")
             return
         case "native":
             missing = check_kernel_dependencies(cfg.arch)
@@ -33,19 +32,14 @@ def _build_kernel_stage(cfg: Config) -> None:
                 klog.err(f"Missing kernel build tools: {', '.join(missing)}")
                 klog.err("Install them or set KERNEL_MODE=docker.")
                 raise SystemExit(1)
-            # Kernel
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
                 klog.log("Building kernel (native)...")
                 kernel.build(cfg)
-            # Tools
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            tools.download_all(cfg)
         case "docker":
             docker.build_builder(cfg, logger=klog)
-            # Kernel
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
             if modules_dir.is_dir() and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
@@ -58,7 +52,21 @@ def _build_kernel_stage(cfg: Config) -> None:
                     cfg.builder_image,
                     "/work/scripts/build-kernel.py",
                 )
-            # Tools
+
+
+def _build_tools_stage(cfg: Config) -> None:
+    """Run the tools download stage according to *cfg.kernel_mode*."""
+    tlog = for_stage("tools")
+    match cfg.kernel_mode:
+        case "skip":
+            # When kernel_mode is skip we still download tools directly
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
+            tools.download_all(cfg)
+        case "native":
+            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
+            tools.download_all(cfg)
+        case "docker":
+            docker.build_builder(cfg, logger=tlog)
             tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
             docker.run_in_builder(
                 cfg,
@@ -126,36 +134,7 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
 def _cmd_kernel(cfg: Config, _extra_args: list[str]) -> None:
     """Build only the kernel (no tools, no mkosi)."""
     klog = for_stage("kernel")
-    match cfg.kernel_mode:
-        case "skip":
-            klog.log("KERNEL_MODE=skip — skipping kernel build")
-            return
-        case "native":
-            missing = check_kernel_dependencies(cfg.arch)
-            if missing:
-                klog.err(f"Missing kernel build tools: {', '.join(missing)}")
-                klog.err("Install them or set KERNEL_MODE=docker.")
-                raise SystemExit(1)
-            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            if modules_dir.is_dir() and not cfg.force_kernel:
-                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-            else:
-                klog.log("Building kernel (native)...")
-                kernel.build(cfg)
-        case "docker":
-            docker.build_builder(cfg, logger=klog)
-            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            if modules_dir.is_dir() and not cfg.force_kernel:
-                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-            else:
-                klog.log("Building kernel (docker)...")
-                docker.run_in_builder(
-                    cfg,
-                    "--entrypoint",
-                    "python3",
-                    cfg.builder_image,
-                    "/work/scripts/build-kernel.py",
-                )
+    _build_kernel_stage(cfg)
     # Copy vmlinuz to the standard out/ directory.
     artifacts.collect_kernel(cfg, logger=klog)
     klog.log("Kernel build stage complete!")
@@ -163,25 +142,8 @@ def _cmd_kernel(cfg: Config, _extra_args: list[str]) -> None:
 
 def _cmd_tools(cfg: Config, _extra_args: list[str]) -> None:
     """Download tools (containerd, runc, nerdctl, CNI plugins)."""
+    _build_tools_stage(cfg)
     tlog = for_stage("tools")
-    match cfg.kernel_mode:
-        case "skip":
-            # When kernel_mode is skip we still download tools directly
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            tools.download_all(cfg)
-        case "native":
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            tools.download_all(cfg)
-        case "docker":
-            docker.build_builder(cfg, logger=tlog)
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            docker.run_in_builder(
-                cfg,
-                "--entrypoint",
-                "python3",
-                cfg.builder_image,
-                "/work/scripts/download-tools.py",
-            )
     tlog.log("Tools stage complete!")
 
 
@@ -226,6 +188,7 @@ def _cmd_build(cfg: Config, extra_args: list[str]) -> None:
     """Full build: kernel → tools → initramfs → artifacts."""
     blog = for_stage("build")
     _build_kernel_stage(cfg)
+    _build_tools_stage(cfg)
     _build_mkosi_stage(cfg, extra_args)
     artifacts.collect(cfg, logger=blog)
     blog.log("Build complete!")

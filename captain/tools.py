@@ -79,8 +79,10 @@ def _check_binary(dest_dir: Path, tool: ToolSpec) -> str | None:
     if tool.binary_name:
         p = dest_dir / tool.binary_name
     elif tool.members:
-        # Use the first member (stripping directory prefixes) as sentinel
-        p = dest_dir / Path(tool.members[0]).name
+        # Use the first member as sentinel (keep subdirectory prefix so
+        # the path matches the actual extraction location, e.g.
+        # "bin/containerd" resolves relative to dest_dir).
+        p = dest_dir / tool.members[0]
     else:
         return None
     return str(p) if p.exists() and os.access(p, os.X_OK) else None
