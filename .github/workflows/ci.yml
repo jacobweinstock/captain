@@ -1,0 +1,171 @@
+name: For each commit and PR
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v**"
+  pull_request:
+
+env:
+  KERNEL_VERSION: "6.12.69"
+
+jobs:
+  # -------------------------------------------------------------------
+  # Build kernel (vmlinuz + modules) inside Docker
+  # -------------------------------------------------------------------
+  build-kernel:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      KERNEL_MODE: docker
+      MKOSI_MODE: skip
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute Dockerfile hash
+        id: dockerfile-hash
+        run: echo "hash=$(sha256sum Dockerfile | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker builder image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: |
+            captainos-builder
+            captainos-builder:${{ steps.dockerfile-hash.outputs.hash }}
+          cache-from: type=gha,scope=builder-${{ matrix.arch }}
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,scope=builder-{0},mode=max', matrix.arch) || '' }}
+
+      - name: Restore kernel cache
+        id: kernel-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/lib/modules
+            mkosi.output/vmlinuz
+          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+
+      - name: Build kernel
+        run: ./build.py kernel
+
+      - name: Fix output file ownership
+        run: sudo chown -R "$(id -u):$(id -g)" mkosi.output/
+
+      - name: Save kernel cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/lib/modules
+            mkosi.output/vmlinuz
+          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: |
+            mkosi.output/kernel/usr/lib/modules
+            mkosi.output/vmlinuz
+          retention-days: 1
+
+  # -------------------------------------------------------------------
+  # Download tools (containerd, runc, nerdctl, CNI plugins)
+  # -------------------------------------------------------------------
+  download-tools:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      KERNEL_MODE: skip
+      MKOSI_MODE: skip
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Restore tools cache
+        id: tools-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/local/bin
+            mkosi.output/kernel/opt/cni
+          key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
+
+      - name: Download tools
+        run: ./build.py tools
+
+      - name: Save tools cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            mkosi.output/kernel/usr/local/bin
+            mkosi.output/kernel/opt/cni
+          key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
+
+      - name: Upload tools artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ matrix.arch }}
+          path: |
+            mkosi.output/kernel/usr/local/bin
+            mkosi.output/kernel/opt/cni
+          retention-days: 1
+
+  # -------------------------------------------------------------------
+  # Build initramfs via mkosi (depends on kernel + tools)
+  # -------------------------------------------------------------------
+  build-initramfs:
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    needs: [build-kernel, download-tools]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      ARCH: ${{ matrix.arch }}
+      KERNEL_MODE: skip
+      MKOSI_MODE: native
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download kernel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: mkosi.output
+
+      - name: Download tools artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tools-${{ matrix.arch }}
+          path: mkosi.output/kernel
+
+      - name: Refresh apt cache
+        run: sudo apt-get update
+
+      - name: setup-mkosi
+        uses: systemd/mkosi@v26
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+
+      - name: Build initramfs
+        run: ./build.py initramfs

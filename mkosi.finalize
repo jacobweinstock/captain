@@ -36,4 +36,53 @@ if [[ -f "$BUILDROOT/init" ]]; then
     echo "    /init made executable"
 fi
 
+# ---------------------------------------------------------------------------
+# Trim kernel modules not needed for provisioning.
+# The kernel is built with a broad defconfig (modules as =m) so the full set
+# is available as a cacheable artifact.  We strip unneeded modules here so
+# the initramfs stays small without requiring a kernel recompile.
+# ---------------------------------------------------------------------------
+MODDIR="$BUILDROOT/usr/lib/modules"
+if [[ -d "$MODDIR" ]]; then
+    echo "==> Trimming unnecessary kernel modules..."
+    BEFORE=$(du -sb "$MODDIR" | awk '{print $1}')
+
+    # Module directory patterns to remove (relative to kernel/ inside the
+    # modules tree).  Each entry is passed to 'find -path'.
+    EXCLUDE_PATTERNS=(
+        # Filesystems not needed for provisioning
+        "*/kernel/fs/btrfs"
+        "*/kernel/fs/nfs"
+        "*/kernel/fs/nfsd"
+        "*/kernel/fs/ceph"
+        "*/kernel/fs/ntfs3"
+        # Network filesystems support (sunrpc is an NFS dependency)
+        "*/kernel/net/sunrpc"
+        "*/kernel/net/ceph"
+        # Block devices
+        "*/kernel/drivers/block/drbd"
+        # Hypervisor / KVM
+        "*/kernel/arch/x86/kvm"
+        "*/kernel/virt"
+        # Niche NIC driver
+        "*/kernel/drivers/net/ethernet/netronome"
+    )
+
+    for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+        find "$MODDIR" -path "$pattern" -type d -exec rm -rf {} + 2>/dev/null || true
+    done
+
+    AFTER=$(du -sb "$MODDIR" | awk '{print $1}')
+    SAVED=$(( (BEFORE - AFTER) / 1024 / 1024 ))
+    [[ $SAVED -lt 0 ]] && SAVED=0
+    echo "    Removed ${SAVED}MB of unnecessary kernel modules"
+
+    # Regenerate module dependency files after removal for all kernel versions
+    for kdir in "$MODDIR"/*; do
+        [[ -d "$kdir" ]] || continue
+        kver=$(basename "$kdir")
+        depmod -a -b "$BUILDROOT/usr" "$kver"
+    done
+fi
+
 echo "==> CaptainOS finalize complete."
