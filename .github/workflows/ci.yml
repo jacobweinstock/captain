@@ -15,7 +15,7 @@ jobs:
   # Build kernel (vmlinuz + modules) inside Docker
   # -------------------------------------------------------------------
   build-kernel:
-    runs-on: ${{ github.repository == 'tinkerbell/captain' && matrix.mainline_runner || matrix.fork_runner }}
+    runs-on: ${{ github.repository != 'tinkerbell/captain' && matrix.fork_runner || fromJSON(matrix.mainline_runner) }}
     strategy:
       fail-fast: false
       matrix:
@@ -23,10 +23,10 @@ jobs:
         include:
           - arch: amd64
             fork_runner: ubuntu-latest
-            mainline_runner: oracle-vm-16cpu-64gb-x86-64
+            mainline_runner: '{"group":"Default","labels":["X64"]}'
           - arch: arm64
             fork_runner: ubuntu-24.04-arm
-            mainline_runner: oracle-vm-16cpu-64gb-arm64
+            mainline_runner: '{"group":"Default","labels":["ARM64"]}'
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_MODE: docker
