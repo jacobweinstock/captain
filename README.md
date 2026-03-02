@@ -21,7 +21,7 @@ CaptainOS boots via PXE/iPXE, runs entirely from RAM as a compressed CPIO initra
 
 ## Building
 
-**Prerequisites:** Python >= 3.10, Docker (or Podman)
+**Prerequisites:** Python >= 3.10, Docker
 
 ```bash
 # Build with defaults (amd64, kernel 6.12.69)
@@ -137,15 +137,34 @@ CaptainOS reads provisioning configuration from the kernel command line:
 ```bash
 ./build.py qemu-test
 
-# With extra kernel cmdline parameters
-QEMU_APPEND='tink_worker_image=reg.local/tink-agent:latest docker_registry=reg.local' ./build.py qemu-test
+# Configure tink-agent via TINK_* environment variables
+TINK_WORKER_IMAGE=reg.local/tink-agent:latest TINK_DOCKER_REGISTRY=reg.local ./build.py qemu-test
 
 # With more resources
 QEMU_MEM=4G QEMU_SMP=4 ./build.py qemu-test
+
+# With extra kernel cmdline parameters
+QEMU_APPEND='custom_param=value' ./build.py qemu-test
 ```
+
+Tinkerbell parameters are configured via `TINK_*` environment variables, which are automatically mapped to kernel cmdline keys:
+
+| Environment variable | Kernel cmdline key | Default |
+| --- | --- | --- |
+| `TINK_WORKER_IMAGE` | `tink_worker_image` | `ghcr.io/tinkerbell/tink-agent:latest` |
+| `TINK_DOCKER_REGISTRY` | `docker_registry` | |
+| `TINK_GRPC_AUTHORITY` | `grpc_authority` | |
+| `TINK_WORKER_ID` | `worker_id` | |
+| `TINK_TLS` | `tinkerbell_tls` | `false` |
+| `TINK_INSECURE_TLS` | `tinkerbell_insecure_tls` | `true` |
+| `TINK_INSECURE_REGISTRIES` | `insecure_registries` | |
+| `TINK_REGISTRY_USERNAME` | `registry_username` | |
+| `TINK_REGISTRY_PASSWORD` | `registry_password` | |
+| `TINK_SYSLOG_HOST` | `syslog_host` | |
+| `TINK_FACILITY` | `facility` | |
 
 This boots the image in QEMU with a virtio NIC and serial console. `console=ttyS0 audit=0` is always appended. Press `Ctrl-A X` to exit.
 
 ## License
 
-See [Tinkerbell](https://github.com/tinkerbell/hook) for license information.
+See [Tinkerbell](https://github.com/tinkerbell/captain/blob/main/LICENSE) for license information.
