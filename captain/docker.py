@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
+import hashlib
 import os
 import platform
-from datetime import datetime, timezone
 from pathlib import Path
 
 from captain.config import Config
@@ -23,46 +22,32 @@ def _image_exists(image: str) -> bool:
     return result.returncode == 0
 
 
-def _image_created_epoch(image: str) -> int:
-    """Return the creation timestamp of a Docker image as a Unix epoch, or 0."""
-    result = run(
-        ["docker", "image", "inspect", image, "--format", "{{.Created}}"],
-        check=False,
-        capture=True,
-    )
-    if result.returncode != 0:
-        return 0
-    try:
-        # Docker returns RFC 3339 timestamps like "2024-01-15T10:30:00.123456789Z"
-        created_str = result.stdout.strip()
-        # Parse ISO format, handling nanosecond precision by truncating
-        if "." in created_str:
-            base, frac = created_str.split(".", 1)
-            # Keep only up to 6 decimal places (microseconds)
-            frac = frac.rstrip("Z")[:6]
-            created_str = f"{base}.{frac}+00:00"
-        elif created_str.endswith("Z"):
-            created_str = created_str[:-1] + "+00:00"
-        dt = datetime.fromisoformat(created_str)
-        return int(dt.timestamp())
-    except (ValueError, OSError):
-        return 0
+def _dockerfile_hash(cfg: Config) -> str:
+    """Return the SHA-256 hex digest of the Dockerfile content.
+
+    This is used as an image tag so that Dockerfile changes are detected
+    automatically.  The value intentionally matches what GitHub Actions
+    ``hashFiles('Dockerfile')`` produces, allowing the CI
+    ``docker/build-push-action`` step to pre-load an image with the same
+    tag that ``build_builder`` will look for.
+    """
+    dockerfile = cfg.project_dir / "Dockerfile"
+    return hashlib.sha256(dockerfile.read_bytes()).hexdigest()
 
 
 def build_builder(cfg: Config) -> None:
-    """Build the Docker builder image if it doesn't exist or the Dockerfile is newer."""
-    dockerfile = cfg.project_dir / "Dockerfile"
-    needs_build = False
+    """Build the Docker builder image when the Dockerfile has changed.
 
-    if not _image_exists(cfg.builder_image):
-        needs_build = True
-    else:
-        dockerfile_mtime = int(dockerfile.stat().st_mtime)
-        image_epoch = _image_created_epoch(cfg.builder_image)
-        if dockerfile_mtime > image_epoch:
-            needs_build = True
+    The image is tagged with a content hash of the Dockerfile so that
+    changes are detected even when the base image name stays the same.
+    When the matching tag already exists locally (e.g. pre-loaded by a CI
+    ``docker/build-push-action`` step with ``load: true``), we skip the
+    build entirely.  Use ``NO_CACHE=1`` to force a full rebuild.
+    """
+    tag = _dockerfile_hash(cfg)
+    tagged_image = f"{cfg.builder_image}:{tag}"
 
-    if not needs_build and not cfg.no_cache:
+    if not cfg.no_cache and _image_exists(tagged_image):
         log(f"Docker image '{cfg.builder_image}' is up to date.")
         return
 
@@ -70,7 +55,7 @@ def build_builder(cfg: Config) -> None:
     cmd = ["docker", "build"]
     if cfg.no_cache:
         cmd.append("--no-cache")
-    cmd.extend(["-t", cfg.builder_image, str(cfg.project_dir)])
+    cmd.extend(["-t", tagged_image, "-t", cfg.builder_image, str(cfg.project_dir)])
     run(cmd)
 
 

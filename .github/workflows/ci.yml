@@ -31,12 +31,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute Dockerfile hash
+        id: dockerfile-hash
+        run: echo "hash=$(sha256sum Dockerfile | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker builder image
         uses: docker/build-push-action@v6
         with:
           context: .
           load: true
-          tags: captainos-builder
+          tags: |
+            captainos-builder
+            captainos-builder:${{ steps.dockerfile-hash.outputs.hash }}
           cache-from: type=gha,scope=builder-${{ matrix.arch }}
           cache-to: type=gha,scope=builder-${{ matrix.arch }},mode=max
 
