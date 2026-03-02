@@ -101,12 +101,24 @@ def safe_extractall(
     if sys.version_info >= (3, 12):
         tf.extractall(path=path, members=members, filter="data")  # type: ignore[call-arg]
     else:
+        dest = Path(path).resolve()
         items = members if members is not None else tf.getmembers()
         safe: list[tarfile.TarInfo] = []
         for m in items:
+            # Block symlinks, hardlinks, and device nodes — they can be
+            # used for write-outside-destination attacks.  This mirrors
+            # the behaviour of Python 3.12's filter="data".
+            if m.issym() or m.islnk():
+                continue
+            if m.isdev() or m.isblk() or m.ischr() or m.isfifo():
+                continue
             # Normalise the name and reject absolute / traversal paths
             m.name = os.path.normpath(m.name)
             if m.name.startswith(("/", "..")) or "/../" in m.name:
+                continue
+            # Verify the resolved target stays within the destination
+            target = (dest / m.name).resolve()
+            if not str(target).startswith(str(dest) + os.sep) and target != dest:
                 continue
             # Reset ownership info (mirrors filter="data" behaviour)
             m.uid = m.gid = 0

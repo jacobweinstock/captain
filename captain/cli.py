@@ -33,17 +33,25 @@ def _build_kernel_stage(cfg: Config) -> None:
                 klog.err("Install them or set KERNEL_MODE=docker.")
                 raise SystemExit(1)
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            if modules_dir.is_dir() and not cfg.force_kernel:
+            vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+            has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
+            if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
+                if modules_dir.is_dir() and not has_vmlinuz:
+                    klog.warn("Modules exist but vmlinuz is missing — rebuilding kernel")
                 klog.log("Building kernel (native)...")
                 kernel.build(cfg)
         case "docker":
             docker.build_builder(cfg, logger=klog)
             modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            if modules_dir.is_dir() and not cfg.force_kernel:
+            vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+            has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
+            if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
             else:
+                if modules_dir.is_dir() and not has_vmlinuz:
+                    klog.warn("Modules exist but vmlinuz is missing — rebuilding kernel")
                 klog.log("Building kernel (docker)...")
                 docker.run_in_builder(
                     cfg,

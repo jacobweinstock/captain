@@ -49,8 +49,17 @@ def _tink_cmdline() -> str:
     parts: list[str] = []
     for env_var, cmdline_key, default in _TINK_PARAMS:
         value = os.environ.get(env_var, default)
-        if value:
-            parts.append(f"{cmdline_key}={value}")
+        if not value:
+            continue
+        # Kernel cmdline is space-delimited; whitespace in values would
+        # split them into multiple arguments and silently change meaning.
+        if any(ch.isspace() for ch in value):
+            _log.err(
+                f"Environment variable {env_var} must not contain whitespace; "
+                "cannot safely add it to the kernel cmdline."
+            )
+            sys.exit(1)
+        parts.append(f"{cmdline_key}={value}")
     return " ".join(parts)
 
 
