@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,6 +87,34 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def safe_extractall(
+    tf: tarfile.TarFile,
+    path: Path | str,
+    members: list[tarfile.TarInfo] | None = None,
+) -> None:
+    """Extract a tarball safely, compatible with Python 3.10+.
+
+    On Python >= 3.12 this delegates to the built-in ``filter='data'``
+    parameter.  On older versions it manually sanitises each member to
+    prevent path-traversal and other tar-related attacks.
+    """
+    if sys.version_info >= (3, 12):
+        tf.extractall(path=path, members=members, filter="data")  # type: ignore[call-arg]
+    else:
+        items = members if members is not None else tf.getmembers()
+        safe: list[tarfile.TarInfo] = []
+        for m in items:
+            # Normalise the name and reject absolute / traversal paths
+            m.name = os.path.normpath(m.name)
+            if m.name.startswith(("/", "..")) or "/../" in m.name:
+                continue
+            # Reset ownership info (mirrors filter="data" behaviour)
+            m.uid = m.gid = 0
+            m.uname = m.gname = ""
+            safe.append(m)
+        tf.extractall(path=path, members=safe)
+
+
 def _missing(cmds: list[str]) -> list[str]:
     """Return command names from *cmds* that are not found on ``$PATH``."""
     import shutil as _shutil
@@ -98,7 +127,7 @@ def check_kernel_dependencies(arch: str) -> list[str]:
 
     Returns a list of missing command names (empty if all found).
     """
-    required = ["make", "gcc", "flex", "bison", "bc", "rsync", "strip"]
+    required = ["make", "gcc", "flex", "bison", "bc", "rsync", "strip", "zstd", "depmod"]
     if arch in ("arm64", "aarch64"):
         required += ["aarch64-linux-gnu-gcc", "aarch64-linux-gnu-strip"]
     return _missing(required)

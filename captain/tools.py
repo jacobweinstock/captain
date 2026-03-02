@@ -16,7 +16,7 @@ from pathlib import Path
 
 from captain.config import Config
 from captain.log import for_stage
-from captain.util import ensure_dir
+from captain.util import ensure_dir, safe_extractall
 
 _log = for_stage("tools")
 
@@ -102,7 +102,7 @@ def _download_tarball(url: str, dest_dir: Path, members: list[str]) -> None:
             wanted.add(f"./{m}")
 
         to_extract = [mi for mi in tf.getmembers() if mi.name in wanted]
-        tf.extractall(path=dest_dir, members=to_extract, filter="data")
+        safe_extractall(tf, path=dest_dir, members=to_extract)
 
     # Make extracted files executable
     for m in members:
@@ -146,7 +146,7 @@ def download_tool(tool: ToolSpec, arch: str, output_base: Path, force: bool) -> 
     # Report installed files
     if tool.members:
         for m in tool.members:
-            p = dest_dir / Path(m).name
+            p = dest_dir / m
             if p.exists():
                 _log.log(f"    {tool.name}: {p}")
     elif tool.binary_name:

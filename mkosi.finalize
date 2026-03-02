@@ -72,11 +72,12 @@ if [[ -d "$MODDIR" ]]; then
         find "$MODDIR" -path "$pattern" -type d -exec rm -rf {} + 2>/dev/null || true
     done
 
-    # Regenerate module dependency files after removal
-    KVER=$(ls "$MODDIR" | head -1)
-    if [[ -n "$KVER" ]]; then
-        depmod -a -b "$BUILDROOT/usr" "$KVER" 2>/dev/null || true
-    fi
+    # Regenerate module dependency files after removal for all kernel versions
+    for kdir in "$MODDIR"/*; do
+        [[ -d "$kdir" ]] || continue
+        kver=$(basename "$kdir")
+        depmod -a -b "$BUILDROOT/usr" "$kver"
+    done
 
     AFTER=$(du -sb "$MODDIR" | awk '{print $1}')
     SAVED=$(( (BEFORE - AFTER) / 1024 / 1024 ))

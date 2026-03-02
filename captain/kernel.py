@@ -16,7 +16,7 @@ from pathlib import Path
 
 from captain.config import Config
 from captain.log import for_stage
-from captain.util import ensure_dir, run
+from captain.util import ensure_dir, run, safe_extractall
 
 _log = for_stage("kernel")
 
@@ -52,7 +52,7 @@ def download_kernel(version: str, dest_dir: Path) -> Path:
 
     _log.log("Extracting kernel source...")
     with tarfile.open(tarball, "r:xz") as tf:
-        tf.extractall(path=dest_dir, filter="data")
+        safe_extractall(tf, path=dest_dir)
     tarball.unlink()
 
     return src_dir
