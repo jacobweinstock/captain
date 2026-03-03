@@ -383,6 +383,7 @@ def _build_kernel_stage(cfg: Config) -> None:
     docker.fix_docker_ownership(cfg, klog, [
         f"/work/mkosi.output/extra-tree/{cfg.arch}",
         f"/work/mkosi.output/vmlinuz/{cfg.arch}",
+        "/work/out",
     ])
 
 
@@ -462,6 +463,7 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
     )
     docker.fix_docker_ownership(cfg, ilog, [
         f"/work/mkosi.output/initramfs/{cfg.arch}",
+        "/work/out",
     ])
 
 
@@ -498,6 +500,7 @@ def _build_iso_stage(cfg: Config) -> None:
     docker.fix_docker_ownership(cfg, isolog, [
         "/work/mkosi.output/iso",
         "/work/mkosi.output/iso-staging",
+        "/work/out",
     ])
 
 # ---------------------------------------------------------------------------
