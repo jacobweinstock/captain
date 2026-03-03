@@ -148,9 +148,9 @@ def build_kernel(cfg: Config, src_dir: Path) -> str:
 
 
 def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
-    """Install modules and kernel image into mkosi.output/kernel/."""
+    """Install modules and kernel image into mkosi.output/extra-tree/{arch}/."""
     ai = cfg.arch_info
-    kernel_output = cfg.kernel_output
+    kernel_output = cfg.extra_tree_output
 
     make_env = {"ARCH": ai.kernel_arch}
     if ai.cross_compile:
@@ -207,7 +207,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     # Place vmlinuz *outside* the ExtraTrees path so it does NOT end up
     # inside the initramfs CPIO.  iPXE loads the kernel separately.
     kernel_image = src_dir / ai.kernel_image_path
-    vmlinuz_dir = ensure_dir(kernel_output.parent / "vmlinuz")
+    vmlinuz_dir = ensure_dir(cfg.vmlinuz_output)
 
     # Remove stale vmlinuz images from prior builds so artifact collection
     # never picks an outdated kernel.
@@ -228,9 +228,12 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
 def build(cfg: Config) -> None:
     """Full kernel build pipeline — download, configure, build, install."""
     # Clean previous output to ensure idempotency
-    if cfg.kernel_output.exists():
-        shutil.rmtree(cfg.kernel_output)
-    ensure_dir(cfg.kernel_output)
+    if cfg.extra_tree_output.exists():
+        shutil.rmtree(cfg.extra_tree_output)
+    ensure_dir(cfg.extra_tree_output)
+
+    if cfg.vmlinuz_output.exists():
+        shutil.rmtree(cfg.vmlinuz_output)
 
     build_dir = Path("/var/tmp/kernel-build")
 

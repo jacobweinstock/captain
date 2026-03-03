@@ -32,8 +32,8 @@ def _build_kernel_stage(cfg: Config) -> None:
                 klog.err(f"Missing kernel build tools: {', '.join(missing)}")
                 klog.err("Install them or set KERNEL_MODE=docker.")
                 raise SystemExit(1)
-            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+            modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
+            vmlinuz_dir = cfg.vmlinuz_output
             has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
             if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
@@ -44,8 +44,8 @@ def _build_kernel_stage(cfg: Config) -> None:
                 kernel.build(cfg)
         case "docker":
             docker.build_builder(cfg, logger=klog)
-            modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
-            vmlinuz_dir = cfg.kernel_output.parent / "vmlinuz"
+            modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
+            vmlinuz_dir = cfg.vmlinuz_output
             has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
             if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
                 klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
@@ -117,10 +117,14 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
                 raise SystemExit(1)
             ilog.log("Building initrd with mkosi (native)...")
             mkosi_args = list(cfg.mkosi_args) + list(extra_args)
+            extra_tree = str(cfg.extra_tree_output)
+            output_dir = str(cfg.initramfs_output)
             run(
                 [
                     "mkosi",
                     f"--architecture={cfg.arch_info.mkosi_arch}",
+                    f"--extra-tree={extra_tree}",
+                    f"--output-dir={output_dir}",
                     "build",
                     *mkosi_args,
                 ],
@@ -132,7 +136,10 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
                 docker.build_builder(cfg, logger=ilog)
             ilog.log("Building initrd with mkosi (docker)...")
             mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-            docker.run_mkosi(cfg, "build", *mkosi_args, logger=ilog)
+            # Inside the container the project is mounted at /work
+            extra_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+            output_dir = f"/work/mkosi.output/initramfs/{cfg.arch}"
+            docker.run_mkosi(cfg, f"--extra-tree={extra_tree}", f"--output-dir={output_dir}", "build", *mkosi_args, logger=ilog)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +171,7 @@ def _check_kernel_modules(cfg: Config) -> None:
     producing an initramfs without modules.
     """
     ilog = for_stage("initramfs")
-    modules_dir = cfg.kernel_output / "usr" / "lib" / "modules"
+    modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
     if not modules_dir.is_dir():
         ilog.err(f"Kernel modules directory not found: {modules_dir}")
         ilog.err("Ensure the kernel build artifacts are downloaded correctly.")
@@ -239,12 +246,12 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
                     "debian:trixie",
                     "sh",
                     "-c",
-                    "rm -rf /work/mkosi.output/image* /work/mkosi.output/image.vmlinuz /work/mkosi.output/vmlinuz /work/mkosi.cache",
+                    "rm -rf /work/mkosi.output/image* /work/mkosi.output/initramfs /work/mkosi.output/vmlinuz /work/mkosi.output/extra-tree /work/mkosi.cache",
                 ],
             )
     else:
         # No Docker available — remove directly (may need sudo for root-owned mkosi files)
-        for pattern in ("image*", "image.vmlinuz", "vmlinuz"):
+        for pattern in ("image*", "initramfs", "vmlinuz", "extra-tree"):
             for p in mkosi_output.glob(pattern):
                 if p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)
@@ -261,13 +268,17 @@ def _cmd_clean(cfg: Config, _extra_args: list[str]) -> None:
 def _cmd_summary(cfg: Config, _extra_args: list[str]) -> None:
     """Print mkosi configuration summary."""
     slog = for_stage("summary")
+    extra_tree = str(cfg.extra_tree_output)
+    output_dir = str(cfg.initramfs_output)
     match cfg.mkosi_mode:
         case "docker":
             docker.build_builder(cfg, logger=slog)
-            docker.run_mkosi(cfg, "summary", logger=slog)
+            container_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+            container_outdir = f"/work/mkosi.output/initramfs/{cfg.arch}"
+            docker.run_mkosi(cfg, f"--extra-tree={container_tree}", f"--output-dir={container_outdir}", "summary", logger=slog)
         case "native":
             run(
-                ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", "summary"],
+                ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", f"--extra-tree={extra_tree}", f"--output-dir={output_dir}", "summary"],
                 cwd=cfg.project_dir,
             )
         case "skip":
@@ -404,13 +415,17 @@ example:
     else:
         # Pass through to mkosi
         mlog = for_stage("mkosi")
+        extra_tree = str(cfg.extra_tree_output)
+        output_dir = str(cfg.initramfs_output)
         match cfg.mkosi_mode:
             case "docker":
                 docker.build_builder(cfg, logger=mlog)
-                docker.run_mkosi(cfg, command, *remaining, logger=mlog)
+                container_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+                container_outdir = f"/work/mkosi.output/initramfs/{cfg.arch}"
+                docker.run_mkosi(cfg, f"--extra-tree={container_tree}", f"--output-dir={container_outdir}", command, *remaining, logger=mlog)
             case "native":
                 run(
-                    ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", command, *remaining],
+                    ["mkosi", f"--architecture={cfg.arch_info.mkosi_arch}", f"--extra-tree={extra_tree}", f"--output-dir={output_dir}", command, *remaining],
                     cwd=cfg.project_dir,
                 )
             case "skip":

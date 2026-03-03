@@ -15,11 +15,18 @@ jobs:
   # Build kernel (vmlinuz + modules) inside Docker
   # -------------------------------------------------------------------
   build-kernel:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository != 'tinkerbell/captain' && matrix.fork_runner || fromJSON(matrix.mainline_runner) }}
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            fork_runner: ubuntu-latest
+            mainline_runner: '{"group":"Default","labels":["oracle-vm-16cpu-64gb-x86-64"]}'
+          - arch: arm64
+            fork_runner: ubuntu-24.04-arm
+            mainline_runner: '{"group":"Default","labels":["oracle-vm-16cpu-64gb-x86-64"]}'
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_MODE: docker
@@ -51,8 +58,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            mkosi.output/kernel/usr/lib/modules
-            mkosi.output/vmlinuz
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
+            mkosi.output/vmlinuz/${{ matrix.arch }}
           key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
 
       - name: Build kernel
@@ -66,8 +73,8 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            mkosi.output/kernel/usr/lib/modules
-            mkosi.output/vmlinuz
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
+            mkosi.output/vmlinuz/${{ matrix.arch }}
           key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
 
       - name: Upload kernel artifacts
@@ -75,8 +82,8 @@ jobs:
         with:
           name: kernel-${{ matrix.arch }}
           path: |
-            mkosi.output/kernel/usr/lib/modules
-            mkosi.output/vmlinuz
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
+            mkosi.output/vmlinuz/${{ matrix.arch }}
           retention-days: 1
 
   # -------------------------------------------------------------------
@@ -101,8 +108,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            mkosi.output/kernel/usr/local/bin
-            mkosi.output/kernel/opt/cni
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/local/bin
+            mkosi.output/extra-tree/${{ matrix.arch }}/opt/cni
           key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
 
       - name: Download tools
@@ -113,8 +120,8 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            mkosi.output/kernel/usr/local/bin
-            mkosi.output/kernel/opt/cni
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/local/bin
+            mkosi.output/extra-tree/${{ matrix.arch }}/opt/cni
           key: tools-${{ matrix.arch }}-${{ hashFiles('captain/tools.py') }}
 
       - name: Upload tools artifacts
@@ -122,8 +129,8 @@ jobs:
         with:
           name: tools-${{ matrix.arch }}
           path: |
-            mkosi.output/kernel/usr/local/bin
-            mkosi.output/kernel/opt/cni
+            mkosi.output/extra-tree/${{ matrix.arch }}/usr/local/bin
+            mkosi.output/extra-tree/${{ matrix.arch }}/opt/cni
           retention-days: 1
 
   # -------------------------------------------------------------------
@@ -154,7 +161,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tools-${{ matrix.arch }}
-          path: mkosi.output/kernel
+          path: mkosi.output/extra-tree/${{ matrix.arch }}
 
       - name: Refresh apt cache
         run: sudo apt-get update
