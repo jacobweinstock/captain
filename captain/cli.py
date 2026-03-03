@@ -19,46 +19,6 @@ from captain.util import check_kernel_dependencies, check_mkosi_dependencies, ru
 # Build helpers
 # ---------------------------------------------------------------------------
 
-
-def _fix_docker_ownership(cfg: Config, logger, paths: list[str]) -> None:
-    """Fix ownership of Docker-created files (container runs as root).
-
-    Spawns a lightweight container to ``chown -R`` the given paths
-    back to the calling user so that subsequent native-mode stages
-    and the host user can read/write them.
-
-    Idempotent: skips the chown if every path either does not exist
-    or is already owned by the current user.
-    """
-    uid = os.getuid()
-    gid = os.getgid()
-
-    # *paths* use the container mount prefix /work — translate to host.
-    needs_fix: list[str] = []
-    for p in paths:
-        host_path = Path(p.replace("/work", str(cfg.project_dir), 1))
-        if not host_path.exists():
-            continue
-        st = host_path.stat()
-        if st.st_uid != uid or st.st_gid != gid:
-            needs_fix.append(p)
-
-    if not needs_fix:
-        return
-
-    logger.log("Fixing ownership of Docker-created files...")
-    run(
-        [
-            "docker", "run", "--rm",
-            "-v", f"{cfg.project_dir}:/work",
-            "-w", "/work",
-            "debian:trixie",
-            "chown", "-R", f"{uid}:{gid}",
-            *needs_fix,
-        ],
-    )
-
-
 def _build_kernel_stage(cfg: Config) -> None:
     """Run the kernel build stage according to *cfg.kernel_mode*."""
     klog = for_stage("kernel")
@@ -100,7 +60,7 @@ def _build_kernel_stage(cfg: Config) -> None:
         cfg.builder_image,
         "/work/build.py", "kernel",
     )
-    _fix_docker_ownership(cfg, klog, [
+    docker.fix_docker_ownership(cfg, klog, [
         f"/work/mkosi.output/extra-tree/{cfg.arch}",
         f"/work/mkosi.output/vmlinuz/{cfg.arch}",
     ])
@@ -130,7 +90,7 @@ def _build_tools_stage(cfg: Config) -> None:
         cfg.builder_image,
         "/work/build.py", "tools",
     )
-    _fix_docker_ownership(cfg, tlog, ["/work/mkosi.output"])
+    docker.fix_docker_ownership(cfg, tlog, ["/work/mkosi.output"])
 
 
 def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
@@ -180,7 +140,7 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
         *mkosi_args,
         logger=ilog,
     )
-    _fix_docker_ownership(cfg, ilog, [
+    docker.fix_docker_ownership(cfg, ilog, [
         f"/work/mkosi.output/initramfs/{cfg.arch}",
     ])
 
@@ -215,7 +175,7 @@ def _build_iso_stage(cfg: Config) -> None:
         cfg.builder_image,
         "/work/build.py", "iso",
     )
-    _fix_docker_ownership(cfg, isolog, [
+    docker.fix_docker_ownership(cfg, isolog, [
         "/work/mkosi.output/iso",
         "/work/mkosi.output/iso-staging",
     ])
@@ -275,7 +235,9 @@ def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:
     ilog = for_stage("initramfs")
     _check_kernel_modules(cfg)
     _build_mkosi_stage(cfg, extra_args)
-    artifacts.collect(cfg, logger=ilog)
+    artifacts.collect_initramfs(cfg, logger=ilog)
+    artifacts.collect_kernel(cfg, logger=ilog)
+    artifacts.collect_checksums(cfg, logger=ilog)
     ilog.log("Initramfs build complete!")
 
 
@@ -284,7 +246,8 @@ def _cmd_iso(cfg: Config, _extra_args: list[str]) -> None:
     """Build only the ISO image."""
     isolog = for_stage("iso")
     _build_iso_stage(cfg)
-    artifacts.collect(cfg, logger=isolog)
+    artifacts.collect_iso(cfg, logger=isolog)
+    artifacts.collect_checksums(cfg, logger=isolog)
     isolog.log("ISO build complete!")
 
 
@@ -381,10 +344,6 @@ def _cmd_qemu_test(cfg: Config, _extra_args: list[str]) -> None:
 
 def main(project_dir: Path | None = None) -> None:
     """Main CLI entry point."""
-    # Require Python >= 3.10
-    if sys.version_info < (3, 10):
-        print("ERROR: Python >= 3.10 is required.", file=sys.stderr)
-        sys.exit(1)
 
     env_help = """\
 

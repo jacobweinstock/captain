@@ -158,3 +158,42 @@ def ensure_binfmt(cfg: Config, logger: StageLogger | None = None) -> None:
     if result.returncode != 0:
         _log.warn("Could not auto-register binfmt handlers.")
         _log.warn("Run manually: docker run --privileged --rm tonistiigi/binfmt --install all")
+
+
+def fix_docker_ownership(cfg: Config, logger, paths: list[str]) -> None:
+    """Fix ownership of Docker-created files (container runs as root).
+
+    Spawns a lightweight container to ``chown -R`` the given paths
+    back to the calling user so that subsequent native-mode stages
+    and the host user can read/write them.
+
+    Idempotent: skips the chown if every path either does not exist
+    or is already owned by the current user.
+    """
+    uid = os.getuid()
+    gid = os.getgid()
+
+    # *paths* use the container mount prefix /work — translate to host.
+    needs_fix: list[str] = []
+    for p in paths:
+        host_path = Path(p.replace("/work", str(cfg.project_dir), 1))
+        if not host_path.exists():
+            continue
+        st = host_path.stat()
+        if st.st_uid != uid or st.st_gid != gid:
+            needs_fix.append(p)
+
+    if not needs_fix:
+        return
+
+    logger.log("Fixing ownership of Docker-created files...")
+    run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{cfg.project_dir}:/work",
+            "-w", "/work",
+            "debian:trixie",
+            "chown", "-R", f"{uid}:{gid}",
+            *needs_fix,
+        ],
+    )
