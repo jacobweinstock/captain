@@ -32,12 +32,14 @@ class Config:
 
     # Per-stage mode: "docker" | "native" | "skip"
     kernel_mode: str = "docker"
+    tools_mode: str = "docker"
     mkosi_mode: str = "docker"
-    iso_mode: str = "skip"
+    iso_mode: str = "docker"
 
     # Force flags
     force_kernel: bool = False
     force_tools: bool = False
+    force_iso: bool = False
 
     # QEMU
     qemu_append: str = ""
@@ -54,6 +56,7 @@ class Config:
         self.arch_info = get_arch_info(self.arch)
         for name, value in (
             ("KERNEL_MODE", self.kernel_mode),
+            ("TOOLS_MODE", self.tools_mode),
             ("MKOSI_MODE", self.mkosi_mode),
             ("ISO_MODE", self.iso_mode),
         ):
@@ -70,6 +73,7 @@ class Config:
         """True if any stage requires Docker."""
         return (
             self.kernel_mode == "docker"
+            or self.tools_mode == "docker"
             or self.mkosi_mode == "docker"
             or self.iso_mode == "docker"
         )
@@ -78,7 +82,7 @@ class Config:
     def from_env(cls, project_dir: Path) -> Config:
         """Create a Config from environment variables.
 
-        KERNEL_MODE / MKOSI_MODE accept "docker" (default), "native", or "skip".
+        KERNEL_MODE / MKOSI_MODE / ISO_MODE accept "docker" (default), "native", or "skip".
         """
         return cls(
             project_dir=project_dir,
@@ -89,10 +93,12 @@ class Config:
             builder_image=os.environ.get("BUILDER_IMAGE", "captainos-builder"),
             no_cache=os.environ.get("NO_CACHE") == "1",
             kernel_mode=os.environ.get("KERNEL_MODE", "docker"),
+            tools_mode=os.environ.get("TOOLS_MODE", "docker"),
             mkosi_mode=os.environ.get("MKOSI_MODE", "docker"),
-            iso_mode=os.environ.get("ISO_MODE", "skip"),
+            iso_mode=os.environ.get("ISO_MODE", "docker"),
             force_kernel=os.environ.get("FORCE_KERNEL") == "1",
             force_tools=os.environ.get("FORCE_TOOLS") == "1",
+            force_iso=os.environ.get("FORCE_ISO") == "1",
             qemu_append=os.environ.get("QEMU_APPEND", ""),
             qemu_mem=os.environ.get("QEMU_MEM", "2G"),
             qemu_smp=os.environ.get("QEMU_SMP", "2"),

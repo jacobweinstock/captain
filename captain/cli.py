@@ -19,128 +19,206 @@ from captain.util import check_kernel_dependencies, check_mkosi_dependencies, ru
 # Build helpers
 # ---------------------------------------------------------------------------
 
+
+def _fix_docker_ownership(cfg: Config, logger, paths: list[str]) -> None:
+    """Fix ownership of Docker-created files (container runs as root).
+
+    Spawns a lightweight container to ``chown -R`` the given paths
+    back to the calling user so that subsequent native-mode stages
+    and the host user can read/write them.
+
+    Idempotent: skips the chown if every path either does not exist
+    or is already owned by the current user.
+    """
+    uid = os.getuid()
+    gid = os.getgid()
+
+    # *paths* use the container mount prefix /work — translate to host.
+    needs_fix: list[str] = []
+    for p in paths:
+        host_path = Path(p.replace("/work", str(cfg.project_dir), 1))
+        if not host_path.exists():
+            continue
+        st = host_path.stat()
+        if st.st_uid != uid or st.st_gid != gid:
+            needs_fix.append(p)
+
+    if not needs_fix:
+        return
+
+    logger.log("Fixing ownership of Docker-created files...")
+    run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{cfg.project_dir}:/work",
+            "-w", "/work",
+            "debian:trixie",
+            "chown", "-R", f"{uid}:{gid}",
+            *needs_fix,
+        ],
+    )
+
+
 def _build_kernel_stage(cfg: Config) -> None:
     """Run the kernel build stage according to *cfg.kernel_mode*."""
     klog = for_stage("kernel")
-    match cfg.kernel_mode:
-        case "skip":
-            klog.log("KERNEL_MODE=skip — skipping kernel build")
-            return
-        case "native":
-            missing = check_kernel_dependencies(cfg.arch)
-            if missing:
-                klog.err(f"Missing kernel build tools: {', '.join(missing)}")
-                klog.err("Install them or set KERNEL_MODE=docker.")
-                raise SystemExit(1)
-            modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
-            vmlinuz_dir = cfg.vmlinuz_output
-            has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
-            if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
-                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-            else:
-                if modules_dir.is_dir() and not has_vmlinuz:
-                    klog.warn("Modules exist but vmlinuz is missing — rebuilding kernel")
-                klog.log("Building kernel (native)...")
-                kernel.build(cfg)
-        case "docker":
-            docker.build_builder(cfg, logger=klog)
-            modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
-            vmlinuz_dir = cfg.vmlinuz_output
-            has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
-            if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
-                klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
-            else:
-                if modules_dir.is_dir() and not has_vmlinuz:
-                    klog.warn("Modules exist but vmlinuz is missing — rebuilding kernel")
-                klog.log("Building kernel (docker)...")
-                docker.run_in_builder(
-                    cfg,
-                    "--entrypoint",
-                    "python3",
-                    cfg.builder_image,
-                    "/work/scripts/build-kernel.py",
-                )
+
+    # --- skip ---------------------------------------------------------
+    if cfg.kernel_mode == "skip":
+        klog.log("KERNEL_MODE=skip — skipping kernel build")
+        return
+
+    # --- idempotency --------------------------------------------------
+    modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
+    vmlinuz_dir = cfg.vmlinuz_output
+    has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
+
+    if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
+        klog.log("Kernel already built (set FORCE_KERNEL=1 to rebuild)")
+        return
+
+    if modules_dir.is_dir() and not has_vmlinuz:
+        klog.warn("Modules exist but vmlinuz is missing — rebuilding kernel")
+
+    # --- native -------------------------------------------------------
+    if cfg.kernel_mode == "native":
+        missing = check_kernel_dependencies(cfg.arch)
+        if missing:
+            klog.err(f"Missing kernel build tools: {', '.join(missing)}")
+            klog.err("Install them or set KERNEL_MODE=docker.")
+            raise SystemExit(1)
+        klog.log("Building kernel (native)...")
+        kernel.build(cfg)
+        return
+
+    # --- docker -------------------------------------------------------
+    docker.build_builder(cfg, logger=klog)
+    klog.log("Building kernel (docker)...")
+    docker.run_in_builder(
+        cfg,
+        "--entrypoint", "python3",
+        cfg.builder_image,
+        "/work/build.py", "kernel",
+    )
+    _fix_docker_ownership(cfg, klog, [
+        f"/work/mkosi.output/extra-tree/{cfg.arch}",
+        f"/work/mkosi.output/vmlinuz/{cfg.arch}",
+    ])
 
 
 def _build_tools_stage(cfg: Config) -> None:
-    """Run the tools download stage according to *cfg.kernel_mode*."""
+    """Run the tools download stage according to *cfg.tools_mode*."""
     tlog = for_stage("tools")
-    match cfg.kernel_mode:
-        case "skip":
-            # When kernel_mode is skip we still download tools directly
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            tools.download_all(cfg)
-        case "native":
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            tools.download_all(cfg)
-        case "docker":
-            docker.build_builder(cfg, logger=tlog)
-            tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
-            docker.run_in_builder(
-                cfg,
-                "--entrypoint",
-                "python3",
-                cfg.builder_image,
-                "/work/scripts/download-tools.py",
-            )
-            # The Docker container runs as root, so files it creates inside
-            # the bind-mounted mkosi.output/ are owned by root.  If the next
-            # stage runs natively (MKOSI_MODE=native), mkosi won't be able to
-            # write to that directory.  Fix ownership now.
-            if cfg.mkosi_mode == "native":
-                uid = os.getuid()
-                gid = os.getgid()
-                tlog.log("Fixing ownership of mkosi.output/ for native mkosi...")
-                run(
-                    [
-                        "docker", "run", "--rm",
-                        "-v", f"{cfg.project_dir}:/work",
-                        "-w", "/work",
-                        "debian:trixie",
-                        "chown", "-R", f"{uid}:{gid}", "/work/mkosi.output",
-                    ],
-                )
+
+    # --- skip ---------------------------------------------------------
+    if cfg.tools_mode == "skip":
+        tlog.log("TOOLS_MODE=skip — skipping tools download")
+        return
+
+    # --- native -------------------------------------------------------
+    if cfg.tools_mode == "native":
+        tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
+        tools.download_all(cfg)
+        return
+
+    # --- docker -------------------------------------------------------
+    docker.build_builder(cfg, logger=tlog)
+    tlog.log("Downloading tools (nerdctl, containerd, etc.)...")
+    docker.run_in_builder(
+        cfg,
+        "--entrypoint", "python3",
+        cfg.builder_image,
+        "/work/build.py", "tools",
+    )
+    _fix_docker_ownership(cfg, tlog, ["/work/mkosi.output"])
 
 
 def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
     """Run the mkosi image-assembly stage according to *cfg.mkosi_mode*."""
     ilog = for_stage("initramfs")
-    match cfg.mkosi_mode:
-        case "skip":
-            ilog.log("MKOSI_MODE=skip — skipping image assembly")
-            return
-        case "native":
-            missing = check_mkosi_dependencies()
-            if missing:
-                ilog.err(f"Missing mkosi tools: {', '.join(missing)}")
-                ilog.err("Install them or set MKOSI_MODE=docker.")
-                raise SystemExit(1)
-            ilog.log("Building initrd with mkosi (native)...")
-            mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-            extra_tree = str(cfg.extra_tree_output)
-            output_dir = str(cfg.initramfs_output)
-            run(
-                [
-                    "mkosi",
-                    f"--architecture={cfg.arch_info.mkosi_arch}",
-                    f"--extra-tree={extra_tree}",
-                    f"--output-dir={output_dir}",
-                    "build",
-                    *mkosi_args,
-                ],
-                cwd=cfg.project_dir,
-            )
-        case "docker":
-            if cfg.kernel_mode != "docker":
-                # Builder image may not have been built yet
-                docker.build_builder(cfg, logger=ilog)
-            ilog.log("Building initrd with mkosi (docker)...")
-            mkosi_args = list(cfg.mkosi_args) + list(extra_args)
-            # Inside the container the project is mounted at /work
-            extra_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
-            output_dir = f"/work/mkosi.output/initramfs/{cfg.arch}"
-            docker.run_mkosi(cfg, f"--extra-tree={extra_tree}", f"--output-dir={output_dir}", "build", *mkosi_args, logger=ilog)
 
+    # --- skip ---------------------------------------------------------
+    if cfg.mkosi_mode == "skip":
+        ilog.log("MKOSI_MODE=skip — skipping image assembly")
+        return
+
+    mkosi_args = list(cfg.mkosi_args) + list(extra_args)
+
+    # --- native -------------------------------------------------------
+    if cfg.mkosi_mode == "native":
+        missing = check_mkosi_dependencies()
+        if missing:
+            ilog.err(f"Missing mkosi tools: {', '.join(missing)}")
+            ilog.err("Install them or set MKOSI_MODE=docker.")
+            raise SystemExit(1)
+        ilog.log("Building initrd with mkosi (native)...")
+        extra_tree = str(cfg.extra_tree_output)
+        output_dir = str(cfg.initramfs_output)
+        run(
+            [
+                "mkosi",
+                f"--architecture={cfg.arch_info.mkosi_arch}",
+                f"--extra-tree={extra_tree}",
+                f"--output-dir={output_dir}",
+                "build",
+                *mkosi_args,
+            ],
+            cwd=cfg.project_dir,
+        )
+        return
+
+    # --- docker -------------------------------------------------------
+    docker.build_builder(cfg, logger=ilog)
+    ilog.log("Building initrd with mkosi (docker)...")
+    extra_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+    output_dir = f"/work/mkosi.output/initramfs/{cfg.arch}"
+    docker.run_mkosi(
+        cfg,
+        f"--extra-tree={extra_tree}",
+        f"--output-dir={output_dir}",
+        "build",
+        *mkosi_args,
+        logger=ilog,
+    )
+    _fix_docker_ownership(cfg, ilog, [
+        f"/work/mkosi.output/initramfs/{cfg.arch}",
+    ])
+
+
+def _build_iso_stage(cfg: Config) -> None:
+    """Run the ISO build stage according to *cfg.iso_mode*."""
+    isolog = for_stage("iso")
+
+    # --- skip ---------------------------------------------------------
+    if cfg.iso_mode == "skip":
+        isolog.log("ISO_MODE=skip — skipping ISO build")
+        return
+
+    # --- idempotency --------------------------------------------------
+    iso_path = cfg.iso_output / f"captainos-{cfg.arch}.iso"
+    if iso_path.is_file() and not cfg.force_iso:
+        isolog.log(f"ISO already built: {iso_path} (set FORCE_ISO=1 to rebuild)")
+        return
+
+    # --- native -------------------------------------------------------
+    if cfg.iso_mode == "native":
+        isolog.log("Building ISO (native)...")
+        iso.build(cfg)
+        return
+
+    # --- docker -------------------------------------------------------
+    docker.build_builder(cfg, logger=isolog)
+    isolog.log("Building ISO (docker)...")
+    docker.run_in_builder(
+        cfg,
+        "--entrypoint", "python3",
+        cfg.builder_image,
+        "/work/build.py", "iso",
+    )
+    _fix_docker_ownership(cfg, isolog, [
+        "/work/mkosi.output/iso",
+        "/work/mkosi.output/iso-staging",
+    ])
 
 # ---------------------------------------------------------------------------
 # Subcommands
@@ -200,42 +278,6 @@ def _cmd_initramfs(cfg: Config, extra_args: list[str]) -> None:
     artifacts.collect(cfg, logger=ilog)
     ilog.log("Initramfs build complete!")
 
-
-def _build_iso_stage(cfg: Config) -> None:
-    """Run the ISO build stage according to *cfg.iso_mode*."""
-    isolog = for_stage("iso")
-    match cfg.iso_mode:
-        case "skip":
-            isolog.log("ISO_MODE=skip — skipping ISO build")
-            return
-        case "native":
-            isolog.log("Building ISO (native)...")
-            iso.build(cfg)
-        case "docker":
-            docker.build_builder(cfg, logger=isolog)
-            isolog.log("Building ISO (docker)...")
-            docker.run_in_builder(
-                cfg,
-                "--entrypoint",
-                "python3",
-                cfg.builder_image,
-                "/work/scripts/build-iso.py",
-            )
-            # Fix ownership of Docker-created files (container runs as root)
-            uid = os.getuid()
-            gid = os.getgid()
-            isolog.log("Fixing ownership of ISO output files...")
-            run(
-                [
-                    "docker", "run", "--rm",
-                    "-v", f"{cfg.project_dir}:/work",
-                    "-w", "/work",
-                    "debian:trixie",
-                    "chown", "-R", f"{uid}:{gid}",
-                    f"/work/mkosi.output/iso",
-                    f"/work/mkosi.output/iso-staging",
-                ],
-            )
 
 
 def _cmd_iso(cfg: Config, _extra_args: list[str]) -> None:
@@ -349,12 +391,14 @@ def main(project_dir: Path | None = None) -> None:
 environment variables:
   ARCH            Target architecture: amd64 (default) or arm64
   KERNEL_MODE     Kernel build mode: docker (default), native, or skip
+  TOOLS_MODE      Tools download mode: docker (default), native, or skip
   MKOSI_MODE      mkosi build mode: docker (default), native, or skip
-  ISO_MODE        ISO build mode: skip (default), docker, or native
+  ISO_MODE        ISO build mode: docker (default), native, or skip
   KERNEL_SRC      Path to local kernel source tree
   KERNEL_VERSION  Kernel version to build (default: 6.12.69)
   FORCE_KERNEL    Set to 1 to force kernel rebuild
   FORCE_TOOLS     Set to 1 to re-download tools
+  FORCE_ISO       Set to 1 to force ISO rebuild
   NO_CACHE        Set to 1 to rebuild builder image without cache
   BUILDER_IMAGE   Override builder Docker image name
   QEMU_APPEND     Extra kernel cmdline args for qemu-test
@@ -367,7 +411,7 @@ examples:
   KERNEL_SRC=~/linux ./build.py               Use local kernel source
   FORCE_KERNEL=1 ./build.py                   Force kernel rebuild
   KERNEL_MODE=skip MKOSI_MODE=native build.py Skip kernel, native mkosi
-  ISO_MODE=docker ./build.py iso               Build ISO in Docker
+  ./build.py iso                                Build ISO in Docker
   KERNEL_MODE=native ./build.py               Native kernel, Docker mkosi
   ./build.py shell                            Debug inside builder
   ./build.py qemu-test                        Boot test with QEMU"""

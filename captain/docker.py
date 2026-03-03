@@ -89,7 +89,17 @@ def run_in_builder(cfg: Config, *extra_args: str) -> None:
         "-e",
         f"FORCE_KERNEL={int(cfg.force_kernel)}",
         "-e",
-        f"ISO_MODE={cfg.iso_mode}",
+        f"FORCE_ISO={int(cfg.force_iso)}",
+        # Force all stage modes to native inside the container so
+        # build.py never tries to launch Docker recursively.
+        "-e",
+        "KERNEL_MODE=native",
+        "-e",
+        "TOOLS_MODE=native",
+        "-e",
+        "MKOSI_MODE=native",
+        "-e",
+        "ISO_MODE=native",
     ]
 
     # Mount kernel source if provided
