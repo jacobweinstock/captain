@@ -302,9 +302,9 @@ jobs:
           retention-days: 1
 
   # -------------------------------------------------------------------
-  # Collect release artifacts and compute checksums
+  # Collect artifacts and compute checksums
   # -------------------------------------------------------------------
-  release-artifacts:
+  artifacts:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     needs: [build-iso]
     strategy:
@@ -354,10 +354,10 @@ jobs:
             out/initramfs-${{ matrix.arch }}.cpio.zst \
             out/captainos-${{ matrix.arch }}.iso
 
-      - name: Upload release artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.arch }}
+          name: artifacts-${{ matrix.arch }}
           path: out/
           retention-days: 1
 
@@ -373,7 +373,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: oras-project/setup-oras@v1
 
-      - name: Push release artifacts to GHCR
+      - name: Push artifacts to GHCR
         if: github.ref == 'refs/heads/main'
         run: |
           oras push \
