@@ -23,10 +23,10 @@ jobs:
         include:
           - arch: amd64
             fork_runner: ubuntu-latest
-            mainline_runner: '{"group":"Default","labels":["oracle-vm-16cpu-64gb-x86-64"]}'
+            mainline_runner: '{"group":"Default","labels":["X64"]}'
           - arch: arm64
             fork_runner: ubuntu-24.04-arm
-            mainline_runner: '{"group":"Default","labels":["oracle-vm-16cpu-64gb-x86-64"]}'
+            mainline_runner: '{"group":"Default","labels":["ARM64"]}'
     env:
       ARCH: ${{ matrix.arch }}
       KERNEL_MODE: docker
