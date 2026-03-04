@@ -174,14 +174,25 @@ def fix_docker_ownership(cfg: Config, logger, paths: list[str]) -> None:
     gid = os.getgid()
 
     # *paths* use the container mount prefix /work — translate to host.
+    # Check the path itself **and** every child — the top-level directory
+    # may already be owned by the host user while files inside it were
+    # created by the container (root).
     needs_fix: list[str] = []
     for p in paths:
         host_path = Path(p.replace("/work", str(cfg.project_dir), 1))
         if not host_path.exists():
             continue
-        st = host_path.stat()
-        if st.st_uid != uid or st.st_gid != gid:
-            needs_fix.append(p)
+        check_paths = [host_path]
+        if host_path.is_dir():
+            check_paths.extend(host_path.rglob("*"))
+        for cp in check_paths:
+            try:
+                st = cp.stat()
+            except OSError:
+                continue
+            if st.st_uid != uid or st.st_gid != gid:
+                needs_fix.append(p)
+                break
 
     if not needs_fix:
         return
