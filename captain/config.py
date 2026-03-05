@@ -36,6 +36,7 @@ class Config:
     tools_mode: str = "docker"
     mkosi_mode: str = "docker"
     iso_mode: str = "docker"
+    release_mode: str = "native"
 
     # Force flags
     force_kernel: bool = False
@@ -60,6 +61,7 @@ class Config:
             ("TOOLS_MODE", self.tools_mode),
             ("MKOSI_MODE", self.mkosi_mode),
             ("ISO_MODE", self.iso_mode),
+            ("RELEASE_MODE", self.release_mode),
         ):
             if value not in VALID_MODES:
                 print(
@@ -77,6 +79,7 @@ class Config:
             or self.tools_mode == "docker"
             or self.mkosi_mode == "docker"
             or self.iso_mode == "docker"
+            or self.release_mode == "docker"
         )
 
     @classmethod
@@ -102,6 +105,7 @@ class Config:
             tools_mode=getattr(args, "tools_mode", "docker"),
             mkosi_mode=getattr(args, "mkosi_mode", "docker"),
             iso_mode=getattr(args, "iso_mode", "docker"),
+            release_mode=getattr(args, "release_mode", "native"),
             force_kernel=getattr(args, "force_kernel", False),
             force_tools=getattr(args, "force_tools", False),
             force_iso=getattr(args, "force_iso", False),
@@ -130,6 +134,7 @@ class Config:
             tools_mode=os.environ.get("TOOLS_MODE", "docker"),
             mkosi_mode=os.environ.get("MKOSI_MODE", "docker"),
             iso_mode=os.environ.get("ISO_MODE", "docker"),
+            release_mode=os.environ.get("RELEASE_MODE", "native"),
             force_kernel=os.environ.get("FORCE_KERNEL") == "1",
             force_tools=os.environ.get("FORCE_TOOLS") == "1",
             force_iso=os.environ.get("FORCE_ISO") == "1",

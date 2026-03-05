@@ -66,6 +66,57 @@ def build_builder(cfg: Config, logger: StageLogger | None = None) -> None:
     run(cmd)
 
 
+_RELEASE_IMAGE = "captainos-release"
+
+
+def _release_dockerfile_hash(cfg: Config) -> str:
+    """Return the SHA-256 hex digest of the Dockerfile.release content."""
+    dockerfile = cfg.project_dir / "Dockerfile.release"
+    return hashlib.sha256(dockerfile.read_bytes()).hexdigest()
+
+
+def build_release_image(cfg: Config, logger: StageLogger | None = None) -> None:
+    """Build the release Docker image from ``Dockerfile.release``."""
+    _log = logger or _default_log
+    tag = _release_dockerfile_hash(cfg)
+    tagged_image = f"{_RELEASE_IMAGE}:{tag}"
+
+    if not cfg.no_cache and _image_exists(tagged_image):
+        _log.log(f"Docker image '{_RELEASE_IMAGE}' is up to date.")
+        run(["docker", "tag", tagged_image, _RELEASE_IMAGE], check=False)
+        return
+
+    _log.log(f"Building Docker image '{_RELEASE_IMAGE}'...")
+    cmd = ["docker", "build", "-f", "Dockerfile.release"]
+    if cfg.no_cache:
+        cmd.append("--no-cache")
+    cmd.extend(["-t", tagged_image, "-t", _RELEASE_IMAGE, str(cfg.project_dir)])
+    run(cmd)
+
+
+def run_in_release(cfg: Config, *extra_args: str) -> None:
+    """Run a command inside the release container.
+
+    Similar to :func:`run_in_builder` but uses the lightweight release
+    image which has crane, Python, and git.
+    """
+    docker_args: list[str] = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{cfg.project_dir}:/work",
+        "-w",
+        "/work",
+        "-e",
+        f"ARCH={cfg.arch}",
+        "-e",
+        "RELEASE_MODE=native",
+    ]
+    docker_args.extend(extra_args)
+    run(docker_args)
+
+
 def run_in_builder(cfg: Config, *extra_args: str) -> None:
     """Run a command inside the Docker builder container.
 
@@ -100,6 +151,8 @@ def run_in_builder(cfg: Config, *extra_args: str) -> None:
         "MKOSI_MODE=native",
         "-e",
         "ISO_MODE=native",
+        "-e",
+        "RELEASE_MODE=native",
     ]
 
     # Mount kernel source if provided

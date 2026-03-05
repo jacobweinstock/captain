@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -40,11 +41,16 @@ class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
     def _format_usage(
         self, usage: str | None, actions: list, groups: list, prefix: str | None,
     ) -> str:
-        """Show ``usage: prog [flags]`` instead of enumerating every flag."""
+        """Show a short usage line with the command placeholder."""
         prog = self._prog
+        # Top-level ("build.py") and release ("build.py release") have subcommands.
+        if prog in ("build.py", "build.py release"):
+            return f"usage: {prog} [command] [flags]\n\n"
+        if prog == "build.py release tag":
+            return f"usage: {prog} <version> [flags]\n\n"
         return f"usage: {prog} [flags]\n\n"
 
-from captain import artifacts, docker, iso, kernel, qemu, tools
+from captain import artifacts, docker, iso, kernel, oci, qemu, tools
 from captain.config import Config
 from captain.log import for_stage
 from captain.util import check_kernel_dependencies, check_mkosi_dependencies, run
@@ -60,6 +66,7 @@ COMMANDS: dict[str, str] = {
     "initramfs": "Build only the initramfs via mkosi",
     "iso": "Build a UEFI-bootable ISO image",
     "checksums": "Compute SHA-256 checksums for specified files",
+    "release": "OCI artifact operations (publish, index, pull, tag)",
     "shell": "Interactive shell inside the builder container",
     "clean": "Remove all build artifacts",
     "summary": "Print mkosi configuration summary",
@@ -125,6 +132,21 @@ def _build_parser(command: str) -> configargparse.ArgParser:
         desc = "Build CaptainOS images. Stages: kernel → tools → initramfs → iso."
         commands_list = "\n".join(
             f"  {name:14s} {d}" for name, d in COMMANDS.items()
+        )
+        epilog = f"""\
+commands:
+{commands_list}
+"""
+    elif command == "release":
+        desc = COMMANDS[command]
+        release_cmds = {
+            "publish": "Push per-arch artifacts to OCI registry",
+            "index": "Create multi-arch OCI index from per-arch manifests",
+            "pull": "Pull and extract artifacts for one architecture",
+            "tag": "Tag an existing OCI artifact index with a version",
+        }
+        commands_list = "\n".join(
+            f"  {name:14s} {d}" for name, d in release_cmds.items()
         )
         epilog = f"""\
 commands:
@@ -270,6 +292,60 @@ def _add_checksums_flags(parser: configargparse.ArgParser) -> None:
     )
 
 
+def _add_release_flags(parser: configargparse.ArgParser) -> None:
+    """--release-mode and OCI registry flags for the release command."""
+    _add_release_base_flags(parser)
+    _add_release_pull_output(parser)
+
+
+def _add_release_base_flags(parser: configargparse.ArgParser) -> None:
+    """Core release flags shared by all release subcommands."""
+    g = parser.add_argument_group("release")
+    g.add_argument(
+        "--release-mode", env_var="RELEASE_MODE", default="native",
+        choices=list(VALID_MODES), help="release stage execution mode",
+    )
+
+    g = parser.add_argument_group("OCI registry")
+    g.add_argument(
+        "--registry", env_var="REGISTRY", metavar="HOST",
+        default="ghcr.io", help="OCI registry hostname",
+    )
+    g.add_argument(
+        "--repository", env_var="GITHUB_REPOSITORY", metavar="OWNER/NAME",
+        default="tinkerbell/captain", help="repository (owner/name)",
+    )
+    g.add_argument(
+        "--oci-artifact-name", env_var="OCI_ARTIFACT_NAME", metavar="NAME",
+        default="artifacts", help="OCI artifact image name",
+    )
+    g.add_argument(
+        "--git-sha", env_var="GITHUB_SHA", metavar="SHA",
+        default=None, help="git commit SHA (default: from git rev-parse HEAD)",
+    )
+    g.add_argument(
+        "--version-exclude", env_var="VERSION_EXCLUDE", metavar="TAG",
+        default=None, help="tag to exclude from git-describe version lookup",
+    )
+
+
+def _add_release_pull_output(parser: configargparse.ArgParser) -> None:
+    """--pull-output flag (only relevant for 'release pull')."""
+    g = parser.add_argument_group("pull")
+    g.add_argument(
+        "--pull-output", metavar="DIR", default=None,
+        help="output directory for pulled artifacts",
+    )
+
+
+def _add_release_tag_version(parser: configargparse.ArgParser) -> None:
+    """Positional <version> argument for 'release tag'."""
+    parser.add_argument(
+        "version", nargs="?", default=None,
+        help="version tag to apply (e.g. v1.0.0)",
+    )
+
+
 def _add_qemu_flags(parser: configargparse.ArgParser) -> None:
     """--qemu-append, --qemu-mem, --qemu-smp"""
     g = parser.add_argument_group("qemu")
@@ -349,6 +425,7 @@ _COMMAND_FLAGS: dict[str, list[object]] = {
     "initramfs": [_add_common_flags, _add_mkosi_flags],
     "iso":       [_add_common_flags, _add_iso_flags],
     "checksums": [_add_common_flags, _add_checksums_flags],
+    "release":   [_add_common_flags, _add_release_flags],
     "shell":     [_add_common_flags],
     "clean":     [],
     "summary":   [_add_common_flags, _add_summary_flags],
@@ -706,6 +783,190 @@ def _cmd_checksums(cfg: Config, _extra_args: list[str], args: object = None) -> 
     clog.log("Checksums complete!")
 
 
+_RELEASE_SUBCOMMANDS = ("publish", "index", "pull", "tag")
+
+_RELEASE_SUBCMD_INFO: dict[str, tuple[str, list]] = {
+    "publish": (
+        "Push per-arch artifacts to OCI registry",
+        [_add_common_flags, _add_release_base_flags],
+    ),
+    "index": (
+        "Create multi-arch OCI index from per-arch manifests",
+        [_add_common_flags, _add_release_base_flags],
+    ),
+    "pull": (
+        "Pull and extract artifacts for one architecture",
+        [_add_common_flags, _add_release_base_flags, _add_release_pull_output],
+    ),
+    "tag": (
+        "Tag an existing OCI artifact index with a version",
+        [_add_common_flags, _add_release_base_flags, _add_release_tag_version],
+    ),
+}
+
+
+def _print_release_subcmd_help(sub: str, *, exit_code: int = 0) -> None:
+    """Print help for a release subcommand and exit."""
+    desc, adders = _RELEASE_SUBCMD_INFO[sub]
+    columns = shutil.get_terminal_size().columns
+    parser = configargparse.ArgParser(
+        prog=f"build.py release {sub}",
+        description=desc,
+        add_env_var_help=False,
+        formatter_class=lambda prog: _HelpFormatter(
+            prog, max_help_position=38, width=columns,
+        ),
+    )
+    for adder in adders:
+        adder(parser)
+    parser.print_help()
+    raise SystemExit(exit_code)
+
+
+def _resolve_git_sha(args: object, project_dir: Path) -> str:
+    """Return the git SHA from args or by running git rev-parse."""
+    sha = getattr(args, "git_sha", None)
+    if sha:
+        return sha
+    import subprocess
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, cwd=project_dir,
+    )
+    return result.stdout.strip()
+
+
+def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> None:
+    """OCI artifact operations: publish, index, pull, tag."""
+    rlog = for_stage("release")
+
+    # Peel the release subcommand from extra_args.
+    if not extra_args:
+        rlog.err(
+            f"Missing release subcommand.\n"
+            f"  usage: build.py release {{{','.join(_RELEASE_SUBCOMMANDS)}}}\n"
+        )
+        raise SystemExit(2)
+
+    sub = extra_args[0]
+    rest = extra_args[1:]
+
+    if sub not in _RELEASE_SUBCOMMANDS:
+        rlog.err(
+            f"Unknown release subcommand '{sub}'.\n"
+            f"  valid: {', '.join(_RELEASE_SUBCOMMANDS)}\n"
+        )
+        raise SystemExit(2)
+
+    # Handle --help / -h for the subcommand.
+    if "-h" in rest or "--help" in rest:
+        _print_release_subcmd_help(sub)
+
+    # --- validate required args early ---------------------------------
+    if sub == "tag" and not rest:
+        rlog.err("Missing version argument.")
+        _print_release_subcmd_help(sub, exit_code=2)
+    if sub == "pull" and not getattr(args, "pull_output", None):
+        rlog.err("--pull-output is required for 'release pull'.")
+        _print_release_subcmd_help(sub, exit_code=2)
+
+    # --- skip ---------------------------------------------------------
+    if cfg.release_mode == "skip":
+        rlog.log("RELEASE_MODE=skip — skipping release operation")
+        return
+
+    # --- docker -------------------------------------------------------
+    if cfg.release_mode == "docker":
+        docker.build_release_image(cfg, logger=rlog)
+        rlog.log(f"Running release {sub} (docker)...")
+        # Forward release-specific env vars into the container.
+        registry = getattr(args, "registry", "ghcr.io")
+        repository = getattr(args, "repository", "tinkerbell/captain")
+        artifact_name = getattr(args, "oci_artifact_name", "artifacts")
+        sha = _resolve_git_sha(args, cfg.project_dir)
+        env_args: list[str] = [
+            "-e", f"REGISTRY={registry}",
+            "-e", f"GITHUB_REPOSITORY={repository}",
+            "-e", f"OCI_ARTIFACT_NAME={artifact_name}",
+            "-e", f"GITHUB_SHA={sha}",
+        ]
+        exclude = getattr(args, "version_exclude", None)
+        if exclude:
+            env_args += ["-e", f"VERSION_EXCLUDE={exclude}"]
+        pull_output = getattr(args, "pull_output", None)
+
+        # Build the inner command.
+        inner_cmd = ["/work/build.py", "release", sub]
+        if pull_output:
+            inner_cmd += ["--pull-output", pull_output]
+        inner_cmd += list(rest)
+
+        try:
+            docker.run_in_release(
+                cfg,
+                *env_args,
+                "--entrypoint", "python3",
+                docker._RELEASE_IMAGE,
+                *inner_cmd,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(exc.returncode) from None
+        docker.fix_docker_ownership(cfg, rlog, ["/work/out"])
+        return
+
+    # --- native -------------------------------------------------------
+    # Common OCI parameters.
+    registry = getattr(args, "registry", "ghcr.io")
+    repository = getattr(args, "repository", "tinkerbell/captain")
+    artifact_name = getattr(args, "oci_artifact_name", "artifacts")
+    exclude = getattr(args, "version_exclude", None)
+    sha = _resolve_git_sha(args, cfg.project_dir)
+    tag = oci.compute_version_tag(cfg.project_dir, sha, exclude=exclude)
+
+    if sub == "publish":
+        oci.publish(
+            cfg,
+            registry=registry,
+            repository=repository,
+            artifact_name=artifact_name,
+            tag=tag,
+            sha=sha,
+            logger=rlog,
+        )
+
+    elif sub == "index":
+        oci.create_index(
+            registry=registry,
+            repository=repository,
+            artifact_name=artifact_name,
+            tag=tag,
+            logger=rlog,
+        )
+
+    elif sub == "pull":
+        pull_output = getattr(args, "pull_output", None)
+        oci.pull(
+            registry=registry,
+            repository=repository,
+            artifact_name=artifact_name,
+            tag=tag,
+            arch=cfg.arch,
+            output_dir=Path(pull_output),
+            logger=rlog,
+        )
+
+    elif sub == "tag":
+        version = rest[0]
+        oci.tag_image(
+            registry=registry,
+            repository=repository,
+            artifact_name=artifact_name,
+            src_tag=tag,
+            new_tag=version,
+            logger=rlog,
+        )
+
+
 def _cmd_qemu_test(cfg: Config, _extra_args: list[str], args: object = None) -> None:
     """Boot the image in QEMU for testing."""
     qemu.run_qemu(cfg, args=args)  # type: ignore[arg-type]
@@ -719,11 +980,26 @@ def main(project_dir: Path | None = None) -> None:
     raw_argv = sys.argv[1:]
     command, flag_argv = _extract_command(raw_argv)
 
+    # For release subcommands, defer -h/--help to _cmd_release so it
+    # can print subcommand-specific help instead of the generic release help.
+    # We defer whenever there's any positional token (not just valid ones),
+    # so that invalid subcommands like "push" show the proper error instead
+    # of the parent help.
+    help_deferred = False
+    if command == "release":
+        has_positional = any(not tok.startswith("-") for tok in flag_argv)
+        has_help = "-h" in flag_argv or "--help" in flag_argv
+        if has_positional and has_help:
+            flag_argv = [t for t in flag_argv if t not in ("-h", "--help")]
+            help_deferred = True
+
     # 2. Build the parser (TINK flags added only for qemu-test).
     parser = _build_parser(command)
 
     # 3. Parse known args — anything unrecognised passes through to mkosi.
     args, extra = parser.parse_known_args(flag_argv)
+    if help_deferred:
+        extra.append("--help")
 
     # 4. Separate --force (mkosi passthrough) from the rest.
     mkosi_args: list[str] = []
@@ -748,13 +1024,14 @@ def main(project_dir: Path | None = None) -> None:
         "checksums": _cmd_checksums,
         "shell": _cmd_shell,
         "clean": _cmd_clean,
+        "release": _cmd_release,
         "summary": _cmd_summary,
         "qemu-test": _cmd_qemu_test,
     }
 
     handler = dispatch.get(command)
     if handler is not None:
-        if command in ("qemu-test", "checksums"):
+        if command in ("qemu-test", "checksums", "release"):
             handler(cfg, extra, args=args)  # type: ignore[operator]
         else:
             handler(cfg, extra)  # type: ignore[operator]
