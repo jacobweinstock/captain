@@ -39,6 +39,7 @@ jobs:
   # This is the workaround.
   # -------------------------------------------------------------------
   check-kernel-cache:
+    needs: [lint]
     runs-on: ubuntu-latest
     outputs:
       amd64-cache-hit: ${{ steps.amd64-cache.outputs.cache-hit }}
@@ -172,6 +173,7 @@ jobs:
   # Download tools (containerd, runc, nerdctl, CNI plugins)
   # -------------------------------------------------------------------
   download-tools:
+    needs: [lint]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
