@@ -87,7 +87,7 @@ def build_release_image(cfg: Config, logger: StageLogger | None = None) -> None:
         return
 
     _log.log(f"Building Docker image '{RELEASE_IMAGE}'...")
-    cmd = ["docker", "build", "-f", "Dockerfile.release"]
+    cmd = ["docker", "build", "-f", str(cfg.project_dir / "Dockerfile.release")]
     if cfg.no_cache:
         cmd.append("--no-cache")
     cmd.extend(["-t", tagged_image, "-t", RELEASE_IMAGE, str(cfg.project_dir)])

@@ -59,7 +59,12 @@ class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
 from captain import artifacts, docker, iso, kernel, oci, qemu, tools  # noqa: E402
 from captain.config import Config  # noqa: E402
 from captain.log import for_stage  # noqa: E402
-from captain.util import check_kernel_dependencies, check_mkosi_dependencies, run  # noqa: E402
+from captain.util import (  # noqa: E402
+    check_kernel_dependencies,
+    check_mkosi_dependencies,
+    check_release_dependencies,
+    run,
+)
 
 # ---------------------------------------------------------------------------
 # Known subcommands (order matters for help text)
@@ -1089,10 +1094,19 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
             )
         except subprocess.CalledProcessError as exc:
             raise SystemExit(exc.returncode) from None
-        docker.fix_docker_ownership(cfg, rlog, ["/work/out"])
+        paths_to_fix = ["/work/out"]
+        if pull_output:
+            paths_to_fix.append(pull_output)
+        docker.fix_docker_ownership(cfg, rlog, paths_to_fix)
         return
 
     # --- native -------------------------------------------------------
+    if cfg.release_mode == "native":
+        missing = check_release_dependencies()
+        if missing:
+            rlog.err(f"Missing release tools: {', '.join(missing)}")
+            rlog.err("Install them or set --release-mode=docker.")
+            raise SystemExit(1)
     # Common OCI parameters.
     registry = getattr(args, "registry", "ghcr.io")
     repository = getattr(args, "repository", "tinkerbell/captain")
