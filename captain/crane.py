@@ -53,7 +53,7 @@ def mutate(
     _log = logger or _default_log
     cmd: list[str] = ["crane", "mutate", image_ref]
     if platform:
-        cmd += ["--platform", platform]
+        cmd += ["--set-platform", platform]
     for key, value in (annotations or {}).items():
         cmd += ["-a", f"{key}={value}"]
     if tag:
