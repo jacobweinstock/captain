@@ -39,7 +39,6 @@ jobs:
   # This is the workaround.
   # -------------------------------------------------------------------
   check-kernel-cache:
-    needs: [lint]
     runs-on: ubuntu-latest
     outputs:
       amd64-cache-hit: ${{ steps.amd64-cache.outputs.cache-hit }}
@@ -72,7 +71,7 @@ jobs:
   # Build kernel (vmlinuz + modules) inside Docker
   # -------------------------------------------------------------------
   build-kernel:
-    needs: [check-kernel-cache]
+    needs: [lint, check-kernel-cache]
     # Forks / cache-hit → cheap default runner; mainline cache-miss → fast oracle runner
     runs-on: >
       ${{ github.repository != 'tinkerbell/captain' && matrix.fork_runner
