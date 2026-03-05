@@ -1,7 +1,7 @@
 .PHONY: lint fmt lint-install
 
 lint-install:
-	pip install -r requirements-dev.txt
+	pip install -r requirements.txt -r requirements-dev.txt
 
 lint:
 	ruff check .
