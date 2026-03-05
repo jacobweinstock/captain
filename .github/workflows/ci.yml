@@ -363,6 +363,7 @@ jobs:
   # Publish artifacts and compute checksums
   # -------------------------------------------------------------------
   publish-artifacts:
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     needs: [build-iso]
     strategy:
@@ -402,7 +403,6 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Log in to GHCR
-        if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -410,11 +410,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install crane
-        if: github.ref == 'refs/heads/main'
         uses: imjasonh/setup-crane@v0.4
 
       - name: Publish artifacts to GHCR
-        if: github.ref == 'refs/heads/main'
         run: ./build.py release publish
 
   # -------------------------------------------------------------------
