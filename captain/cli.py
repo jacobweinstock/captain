@@ -145,7 +145,7 @@ commands:
 {commands_list}
 """
     elif command == "release":
-        desc = COMMANDS[command]
+        desc = "OCI release workflow: build (or pull) → publish → index → tag"
         release_cmds = {
             "publish": "Push per-arch artifacts to OCI registry",
             "index": "Create multi-arch OCI index from per-arch manifests",
