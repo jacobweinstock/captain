@@ -12,7 +12,9 @@ config.  This means:
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tarfile
 from pathlib import Path
 
 from captain.log import StageLogger, for_stage
@@ -62,6 +64,24 @@ def mutate(
     run(cmd)
 
 
+def _safe_tar_extract(tar: tarfile.TarFile, output_dir: Path) -> None:
+    """Extract *tar* members into *output_dir*, rejecting unsafe paths.
+
+    Prevents path-traversal attacks where a malicious image could contain
+    entries with ``../`` or absolute paths that write outside the target
+    directory.
+    """
+    resolved_base = output_dir.resolve()
+    for member in tar:
+        member_path = os.path.normpath(member.name)
+        if os.path.isabs(member_path) or member_path.startswith(".."):
+            raise ValueError(f"Refusing to extract tar member with unsafe path: {member.name!r}")
+        dest = (resolved_base / member_path).resolve()
+        if not str(dest).startswith(str(resolved_base) + os.sep) and dest != resolved_base:
+            raise ValueError(f"Tar member escapes output directory: {member.name!r}")
+        tar.extract(member, path=output_dir)
+
+
 def export_image(
     image_ref: str,
     output_dir: Path,
@@ -71,8 +91,9 @@ def export_image(
 ) -> None:
     """Export the filesystem of *image_ref* into *output_dir*.
 
-    Pipes ``crane export`` stdout into ``tar xf -`` to extract the
-    image layer contents as individual files.
+    Streams ``crane export`` output through Python's :mod:`tarfile` for
+    extraction with path-traversal validation, preventing malicious
+    images from writing outside the target directory.
     """
     _log = logger or _default_log
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -84,18 +105,14 @@ def export_image(
 
     _log.log(f"crane export {image_ref} → {output_dir}")
     crane_proc = subprocess.Popen(crane_cmd, stdout=subprocess.PIPE)
-    tar_cmd: list[str] = ["tar", "xf", "-", "-C", str(output_dir)]
-    tar_proc = subprocess.Popen(
-        tar_cmd,
-        stdin=crane_proc.stdout,
-    )
-    crane_proc.stdout.close()  # type: ignore[union-attr]
-    tar_proc.communicate()
+    try:
+        with tarfile.open(fileobj=crane_proc.stdout, mode="r|") as tf:
+            _safe_tar_extract(tf, output_dir)
+    finally:
+        crane_proc.stdout.close()  # type: ignore[union-attr]
     crane_rc = crane_proc.wait()
     if crane_rc != 0:
         raise subprocess.CalledProcessError(crane_rc, crane_cmd)
-    if tar_proc.returncode != 0:
-        raise subprocess.CalledProcessError(tar_proc.returncode, tar_cmd)
 
 
 def index_append(

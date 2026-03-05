@@ -1096,7 +1096,8 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
             raise SystemExit(exc.returncode) from None
         paths_to_fix = ["/work/out"]
         if pull_output:
-            paths_to_fix.append(pull_output)
+            container_pull_output = f"/work/{pull_output.lstrip('/')}"
+            paths_to_fix.append(container_pull_output)
         docker.fix_docker_ownership(cfg, rlog, paths_to_fix)
         return
 
