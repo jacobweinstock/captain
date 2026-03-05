@@ -138,6 +138,11 @@ def publish(
             tag=ref,
             logger=_log,
         )
+        # Best-effort cleanup of the temporary WIP tag.
+        try:
+            crane.delete(wip_ref, logger=_log)
+        except subprocess.CalledProcessError:
+            _log.log(f"Warning: could not delete temporary tag {wip_ref}")
     finally:
         for t in layer_tars:
             t.unlink(missing_ok=True)

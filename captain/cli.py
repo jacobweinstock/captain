@@ -1084,7 +1084,7 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
                 *env_args,
                 "--entrypoint",
                 "python3",
-                docker._RELEASE_IMAGE,
+                docker.RELEASE_IMAGE,
                 *inner_cmd,
             )
         except subprocess.CalledProcessError as exc:

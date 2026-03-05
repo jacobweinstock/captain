@@ -66,7 +66,7 @@ def build_builder(cfg: Config, logger: StageLogger | None = None) -> None:
     run(cmd)
 
 
-_RELEASE_IMAGE = "captainos-release"
+RELEASE_IMAGE = "captainos-release"
 
 
 def _release_dockerfile_hash(cfg: Config) -> str:
@@ -79,18 +79,18 @@ def build_release_image(cfg: Config, logger: StageLogger | None = None) -> None:
     """Build the release Docker image from ``Dockerfile.release``."""
     _log = logger or _default_log
     tag = _release_dockerfile_hash(cfg)
-    tagged_image = f"{_RELEASE_IMAGE}:{tag}"
+    tagged_image = f"{RELEASE_IMAGE}:{tag}"
 
     if not cfg.no_cache and _image_exists(tagged_image):
-        _log.log(f"Docker image '{_RELEASE_IMAGE}' is up to date.")
-        run(["docker", "tag", tagged_image, _RELEASE_IMAGE])
+        _log.log(f"Docker image '{RELEASE_IMAGE}' is up to date.")
+        run(["docker", "tag", tagged_image, RELEASE_IMAGE])
         return
 
-    _log.log(f"Building Docker image '{_RELEASE_IMAGE}'...")
+    _log.log(f"Building Docker image '{RELEASE_IMAGE}'...")
     cmd = ["docker", "build", "-f", "Dockerfile.release"]
     if cfg.no_cache:
         cmd.append("--no-cache")
-    cmd.extend(["-t", tagged_image, "-t", _RELEASE_IMAGE, str(cfg.project_dir)])
+    cmd.extend(["-t", tagged_image, "-t", RELEASE_IMAGE, str(cfg.project_dir)])
     run(cmd)
 
 
