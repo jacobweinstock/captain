@@ -83,7 +83,7 @@ def build_release_image(cfg: Config, logger: StageLogger | None = None) -> None:
 
     if not cfg.no_cache and _image_exists(tagged_image):
         _log.log(f"Docker image '{_RELEASE_IMAGE}' is up to date.")
-        run(["docker", "tag", tagged_image, _RELEASE_IMAGE], check=False)
+        run(["docker", "tag", tagged_image, _RELEASE_IMAGE])
         return
 
     _log.log(f"Building Docker image '{_RELEASE_IMAGE}'...")

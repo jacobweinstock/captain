@@ -999,7 +999,6 @@ def _resolve_git_sha(args: object, project_dir: Path) -> str:
     sha = getattr(args, "git_sha", None)
     if sha:
         return sha
-    import subprocess
 
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -1124,7 +1123,9 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
 
     elif sub == "pull":
         pull_output = getattr(args, "pull_output", None)
-        assert pull_output is not None  # validated earlier
+        if pull_output is None:
+            rlog.err("--pull-output is required for 'release pull'.")
+            raise SystemExit(2)
         oci.pull(
             registry=registry,
             repository=repository,

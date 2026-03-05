@@ -84,8 +84,9 @@ def export_image(
 
     _log.log(f"crane export {image_ref} → {output_dir}")
     crane_proc = subprocess.Popen(crane_cmd, stdout=subprocess.PIPE)
+    tar_cmd: list[str] = ["tar", "xf", "-", "-C", str(output_dir)]
     tar_proc = subprocess.Popen(
-        ["tar", "xf", "-", "-C", str(output_dir)],
+        tar_cmd,
         stdin=crane_proc.stdout,
     )
     crane_proc.stdout.close()  # type: ignore[union-attr]
@@ -94,7 +95,7 @@ def export_image(
     if crane_rc != 0:
         raise subprocess.CalledProcessError(crane_rc, crane_cmd)
     if tar_proc.returncode != 0:
-        raise subprocess.CalledProcessError(tar_proc.returncode, ["tar"])
+        raise subprocess.CalledProcessError(tar_proc.returncode, tar_cmd)
 
 
 def index_append(

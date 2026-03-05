@@ -109,7 +109,11 @@ def publish(
     # Each layer is a tar containing a single file at the root,
     # so the image filesystem exposes individual files.  crane computes
     # rootfs.diff_ids automatically, keeping containerd happy.
+    #
+    # Layers are appended to a temporary ref so that a partial failure
+    # never leaves the final tag pointing at an incomplete image.
     ref = _image_ref(registry, repository, artifact_name, f"{tag}-{arch}")
+    wip_ref = f"{ref}-wip"
     layer_tars: list[Path] = []
     try:
         for i, f in enumerate(push_files):
@@ -119,12 +123,13 @@ def publish(
                 tf.add(f, arcname=f.name)
             crane.append(
                 layer_tar,
-                ref,
-                base=ref if i > 0 else None,
+                wip_ref,
+                base=wip_ref if i > 0 else None,
                 logger=_log,
             )
+        # All layers succeeded — set metadata and promote to the final tag.
         crane.mutate(
-            ref,
+            wip_ref,
             platform=f"linux/{arch}",
             annotations={
                 "org.opencontainers.image.source": f"https://github.com/{repository}",
