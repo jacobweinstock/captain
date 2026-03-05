@@ -194,7 +194,9 @@ def ensure_binfmt(cfg: Config, logger: StageLogger | None = None) -> None:
     if not need_binfmt:
         return
 
-    _log.log(f"Registering binfmt_misc handlers for cross-architecture build ({host_arch} -> {cfg.arch})...")
+    _log.log(
+        f"Registering binfmt_misc handlers for cross-arch build ({host_arch} -> {cfg.arch})..."
+    )
     result = run(
         [
             "docker",
@@ -253,11 +255,17 @@ def fix_docker_ownership(cfg: Config, logger, paths: list[str]) -> None:
     logger.log("Fixing ownership of Docker-created files...")
     run(
         [
-            "docker", "run", "--rm",
-            "-v", f"{cfg.project_dir}:/work",
-            "-w", "/work",
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{cfg.project_dir}:/work",
+            "-w",
+            "/work",
             "debian:trixie",
-            "chown", "-R", f"{uid}:{gid}",
+            "chown",
+            "-R",
+            f"{uid}:{gid}",
             *needs_fix,
         ],
     )

@@ -14,6 +14,26 @@ permissions:
 
 jobs:
   # -------------------------------------------------------------------
+  # Lint — ruff (lint + format) and pyright (type checking)
+  # -------------------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools
+        run: make lint-install
+
+      - name: Lint
+        run: make lint
+
+  # -------------------------------------------------------------------
   # Fast cache lookup – decides whether the OCI runner is needed
   # There are consistent issues with OCI runners not getting scheduled.
   # This is the workaround.

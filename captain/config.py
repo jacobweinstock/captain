@@ -65,8 +65,7 @@ class Config:
         ):
             if value not in VALID_MODES:
                 print(
-                    f"ERROR: {name}={value!r} is invalid. "
-                    f"Valid values: {', '.join(VALID_MODES)}",
+                    f"ERROR: {name}={value!r} is invalid. Valid values: {', '.join(VALID_MODES)}",
                     file=sys.stderr,
                 )
                 sys.exit(1)

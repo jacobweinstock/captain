@@ -44,14 +44,23 @@ def compute_version_tag(
         TAG="${VERSION}-${SHA::7}"
     """
     cmd = [
-        "git", "describe", "--tags", "--first-parent",
-        "--abbrev=0", "--match", "v[0-9]*",
+        "git",
+        "describe",
+        "--tags",
+        "--first-parent",
+        "--abbrev=0",
+        "--match",
+        "v[0-9]*",
     ]
     if exclude:
         cmd += [f"--exclude={exclude}"]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, cwd=project_dir,
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=project_dir,
         )
         version = result.stdout.strip()
     except subprocess.CalledProcessError:
@@ -90,7 +99,7 @@ def publish(
     artifacts.collect_checksums(arch_files, checksums_path, logger=_log)
 
     # Verify all files exist
-    push_files = arch_files + [checksums_path]
+    push_files = [*arch_files, checksums_path]
     for f in push_files:
         if not f.is_file():
             _log.err(f"Missing artifact: {f}")
@@ -144,10 +153,7 @@ def create_index(
     _log = logger or _default_log
     arches = arches or list(_ARCHES)
     index_ref = _image_ref(registry, repository, artifact_name, tag)
-    manifests = [
-        _image_ref(registry, repository, artifact_name, f"{tag}-{a}")
-        for a in arches
-    ]
+    manifests = [_image_ref(registry, repository, artifact_name, f"{tag}-{a}") for a in arches]
     crane.index_append(index_ref, manifests, logger=_log)
     _log.log(f"Created index → {index_ref}")
 
