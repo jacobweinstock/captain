@@ -76,23 +76,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Load shared config
+        run: cat .github/config.env >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute Dockerfile hash
         id: dockerfile-hash
         run: echo "hash=$(sha256sum Dockerfile | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker builder image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: |
-            captainos-builder
-            captainos-builder:${{ steps.dockerfile-hash.outputs.hash }}
-          cache-from: type=gha,scope=builder-${{ matrix.arch }}
-          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,scope=builder-{0},mode=max', matrix.arch) || '' }}
+      - name: Pull or build builder image
+        id: builder
+        run: |
+          HASH="${{ steps.dockerfile-hash.outputs.hash }}"
+          REMOTE="ghcr.io/${{ github.repository }}/${{ env.BUILDER_IMAGE }}"
+          if docker pull "${REMOTE}:${HASH}"; then
+            docker tag "${REMOTE}:${HASH}" "captainos-builder:${HASH}"
+            docker tag "${REMOTE}:${HASH}" captainos-builder
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          else
+            docker build -t "captainos-builder:${HASH}" -t captainos-builder .
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push builder image to GHCR
+        if: github.ref == 'refs/heads/main' && steps.builder.outputs.built == 'true'
+        run: |
+          HASH="${{ steps.dockerfile-hash.outputs.hash }}"
+          REMOTE="ghcr.io/${{ github.repository }}/${{ env.BUILDER_IMAGE }}"
+          docker tag "captainos-builder:${HASH}" "${REMOTE}:${HASH}"
+          docker push "${REMOTE}:${HASH}"
 
       - name: Restore kernel cache
         id: kernel-cache
@@ -253,23 +271,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Load shared config
+        run: cat .github/config.env >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute Dockerfile hash
         id: dockerfile-hash
         run: echo "hash=$(sha256sum Dockerfile | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker builder image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: |
-            captainos-builder
-            captainos-builder:${{ steps.dockerfile-hash.outputs.hash }}
-          cache-from: type=gha,scope=builder-${{ matrix.arch }}
-          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=gha,scope=builder-{0},mode=max', matrix.arch) || '' }}
+      - name: Pull or build builder image
+        id: builder
+        run: |
+          HASH="${{ steps.dockerfile-hash.outputs.hash }}"
+          REMOTE="ghcr.io/${{ github.repository }}/${{ env.BUILDER_IMAGE }}"
+          if docker pull "${REMOTE}:${HASH}"; then
+            docker tag "${REMOTE}:${HASH}" "captainos-builder:${HASH}"
+            docker tag "${REMOTE}:${HASH}" captainos-builder
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          else
+            docker build -t "captainos-builder:${HASH}" -t captainos-builder .
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push builder image to GHCR
+        if: github.ref == 'refs/heads/main' && steps.builder.outputs.built == 'true'
+        run: |
+          HASH="${{ steps.dockerfile-hash.outputs.hash }}"
+          REMOTE="ghcr.io/${{ github.repository }}/${{ env.BUILDER_IMAGE }}"
+          docker tag "captainos-builder:${HASH}" "${REMOTE}:${HASH}"
+          docker push "${REMOTE}:${HASH}"
 
       - name: Download kernel artifacts
         uses: actions/download-artifact@v4
