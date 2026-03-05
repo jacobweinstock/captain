@@ -183,6 +183,7 @@ jobs:
       ARCH: ${{ matrix.arch }}
       KERNEL_MODE: skip
       MKOSI_MODE: skip
+      TOOLS_MODE: native
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
