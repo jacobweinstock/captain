@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     tar \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --global --add safe.directory /work
 
 # Install crane (with checksum verification)
 RUN DPKG_ARCH="$(dpkg --print-architecture)" \

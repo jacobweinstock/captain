@@ -355,6 +355,7 @@ def _add_checksums_flags(parser: configargparse.ArgParser) -> None:
 def _add_release_flags(parser: configargparse.ArgParser) -> None:
     """--release-mode and OCI registry flags for the release command."""
     _add_release_base_flags(parser)
+    _add_release_target_flag(parser)
     _add_release_pull_output(parser)
 
 
