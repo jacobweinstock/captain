@@ -3,13 +3,20 @@
 Each artifact file is pushed as its own layer so that OCI registries
 can deduplicate blobs between per-arch and combined images.
 
-Per-arch images (``-amd64``, ``-arm64``) are multi-arch OCI indexes
-where both platforms point to the same content, so any host can pull.
+Combined image (``target="both"``, no tag suffix):
+  A multi-arch index where each platform manifest has the native
+  arch's layers first, then the other arch's layers (8 layers total).
+  ``linux/amd64`` → ``[A1‥A4, B1‥B4]``,
+  ``linux/arm64`` → ``[B1‥B4, A1‥A4]``.
 
-The combined image (no suffix) is a multi-arch index where each
-platform entry contains **only** that platform's artifacts.  This
-keeps layer chains identical to the per-arch images so that Docker
-caches layers between the combined and per-arch pulls.
+Per-arch image (``target="amd64"`` or ``"arm64"``, tag suffix ``-{arch}``):
+  A multi-arch index where both platform entries contain the same
+  4 layers (only that arch's artifacts).
+
+Docker layer caching: pulling the combined image first and then the
+native per-arch image gives cache hits, because the per-arch layers
+form a prefix of the combined chain.  Cross-arch caching is not
+possible due to Docker's chain-ID Merkle structure.
 
 * **containerd** can pull it (valid ``rootfs.diff_ids`` in the config) —
   Kubernetes image-volume mounts work.
@@ -20,6 +27,7 @@ from __future__ import annotations
 
 import subprocess
 import tarfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from captain import artifacts, crane
@@ -142,47 +150,32 @@ def _push_platform_manifest(
     sha: str,
     repository: str,
     logger: StageLogger,
+    *,
+    created: str,
+    tag: str,
+    artifact_name: str,
 ) -> None:
     """Push artifact layers and set platform metadata on a temp manifest."""
     for i, tar_path in enumerate(layer_tars):
         crane.append(tar_path, temp_ref, base=temp_ref if i > 0 else None, logger=logger)
+    oci_metadata = {
+        "org.opencontainers.image.created": created,
+        "org.opencontainers.image.source": f"https://github.com/{repository}",
+        "org.opencontainers.image.revision": sha,
+        "org.opencontainers.image.version": tag,
+        "org.opencontainers.image.title": artifact_name,
+        "org.opencontainers.image.description": "CaptainOS build artifacts",
+        "org.opencontainers.image.vendor": "Tinkerbell",
+        "org.opencontainers.image.licenses": "Apache-2.0",
+    }
     crane.mutate(
         temp_ref,
         platform=platform,
-        annotations={
-            "org.opencontainers.image.source": f"https://github.com/{repository}",
-            "org.opencontainers.image.revision": sha,
-        },
+        annotations=oci_metadata,
+        labels=oci_metadata,
         logger=logger,
     )
-
-
-def _publish_arch(
-    cfg: Config,
-    arch: str,
-    final_ref: str,
-    image_base: str,
-    sha: str,
-    repository: str,
-    logger: StageLogger,
-) -> tuple[list[str], list[str]]:
-    """Collect artifacts for *arch*, push a platform manifest, return (digest_refs, names).
-
-    The image is pushed to *final_ref* with platform ``linux/{arch}``.
-    The caller captures the digest before the next push overwrites the tag.
-    """
-    out = ensure_dir(cfg.output_dir)
-    arch_files = _collect_arch_artifacts(cfg.project_dir, out, arch, logger)
-    layer_tars = [_deterministic_tar(f, out) for f in arch_files]
-    try:
-        _push_platform_manifest(
-            layer_tars, final_ref, f"linux/{arch}", sha, repository, logger,
-        )
-        d = crane.digest(final_ref, logger=logger)
-    finally:
-        for t in layer_tars:
-            t.unlink(missing_ok=True)
-    return [f"{image_base}@{d}"], [f.name for f in arch_files]
+    crane.set_created(temp_ref, created, logger=logger)
 
 
 def publish(
@@ -198,60 +191,87 @@ def publish(
 ) -> None:
     """Collect artifacts and publish a multi-arch OCI index.
 
-    Each artifact file becomes its own layer so that OCI registries
-    deduplicate shared blobs between per-arch and combined images.
-
-    When *target* is ``"both"``, each platform entry in the index
-    contains only that platform's artifacts (linux/amd64 → amd64
-    layers, linux/arm64 → arm64 layers).  This keeps the layer
-    chains identical to the per-arch images so that Docker can
-    cache layers between the combined and per-arch pulls.
+    Each artifact file becomes its own layer.  Deterministic tar
+    generation ensures byte-identical layers across publish runs,
+    so OCI registries deduplicate blobs automatically.
 
     *target* selects which artifacts to include: ``"amd64"``,
-    ``"arm64"``, or ``"both"`` (all artifacts from both arches).
+    ``"arm64"``, or ``"both"``.
     """
     _log = logger or _default_log
     arches = list(_ARCHES) if target == "both" else [target]
     tag_suffix = "" if target == "both" else f"-{target}"
-    final_ref = _image_ref(registry, repository, artifact_name, f"{tag}{tag_suffix}")
+    full_tag = f"{tag}{tag_suffix}"
+    final_ref = _image_ref(registry, repository, artifact_name, full_tag)
     out = ensure_dir(cfg.output_dir)
     image_base = f"{registry}/{repository}/{artifact_name}"
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    digest_refs: list[str] = []
-    artifact_names: list[str] = []
+    # Collect artifacts for every requested architecture.
+    arch_files: dict[str, list[Path]] = {}
+    for arch in arches:
+        arch_files[arch] = _collect_arch_artifacts(
+            cfg.project_dir,
+            out,
+            arch,
+            _log,
+        )
 
-    if target == "both":
-        # Each arch gets its own platform manifest so that the layer
-        # chains match the per-arch images exactly (enabling Docker
-        # layer caching between the combined and arch-specific tags).
-        for arch in _ARCHES:
-            refs, names = _publish_arch(
-                cfg, arch, final_ref, image_base, sha, repository, _log,
-            )
-            digest_refs.extend(refs)
-            artifact_names.extend(names)
-    else:
-        # Single-arch: publish the same layers under both platforms so
-        # the image is pullable from any host architecture.
-        arch_files = _collect_arch_artifacts(cfg.project_dir, out, target, _log)
-        artifact_names = [f.name for f in arch_files]
-        layer_tars = [_deterministic_tar(f, out) for f in arch_files]
-        try:
-            for platform in [f"linux/{a}" for a in _ARCHES]:
+    # Create deterministic layer tars (shared across manifest pushes).
+    arch_layer_tars: dict[str, list[Path]] = {}
+    for arch, files in arch_files.items():
+        arch_layer_tars[arch] = [_deterministic_tar(f, out) for f in files]
+
+    try:
+        digest_refs: list[str] = []
+
+        if target == "both":
+            # Combined image: native-first ordering per platform.
+            for arch in _ARCHES:
+                other = next(a for a in _ARCHES if a != arch)
+                ordered = list(arch_layer_tars[arch]) + list(arch_layer_tars[other])
                 _push_platform_manifest(
-                    layer_tars, final_ref, platform, sha, repository, _log,
+                    ordered,
+                    final_ref,
+                    f"linux/{arch}",
+                    sha,
+                    repository,
+                    _log,
+                    created=created,
+                    tag=full_tag,
+                    artifact_name=artifact_name,
                 )
                 d = crane.digest(final_ref, logger=_log)
                 digest_refs.append(f"{image_base}@{d}")
-        finally:
-            for t in layer_tars:
+        else:
+            # Per-arch: same layers under both platforms.
+            for arch in _ARCHES:
+                _push_platform_manifest(
+                    arch_layer_tars[target],
+                    final_ref,
+                    f"linux/{arch}",
+                    sha,
+                    repository,
+                    _log,
+                    created=created,
+                    tag=full_tag,
+                    artifact_name=artifact_name,
+                )
+                d = crane.digest(final_ref, logger=_log)
+                digest_refs.append(f"{image_base}@{d}")
+
+        # Create multi-arch index (overwrites the tag with the index)
+        crane.index_append(final_ref, digest_refs, logger=_log)
+    finally:
+        for tars in arch_layer_tars.values():
+            for t in tars:
                 t.unlink(missing_ok=True)
 
-    # Create multi-arch index (overwrites the tag with the index)
-    crane.index_append(final_ref, digest_refs, logger=_log)
-
     # Recap
-    platforms = [f"linux/{a}" for a in arches]
+    artifact_names: list[str] = []
+    for arch in arches:
+        artifact_names.extend(f.name for f in arch_files.get(arch, []))
+    platforms = [f"linux/{a}" for a in _ARCHES]
     _log.log("")
     _log.log("Publish complete")
     _log.log(f"  Image:     {final_ref}")
