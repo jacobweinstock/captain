@@ -368,13 +368,6 @@ def _add_release_base_flags(parser: configargparse.ArgParser) -> None:
         choices=list(VALID_MODES),
         help="release stage execution mode",
     )
-    g.add_argument(
-        "--target",
-        env_var="TARGET",
-        default=None,
-        choices=["amd64", "arm64", "both"],
-        help="artifact target (amd64, arm64, or both; default: --arch value)",
-    )
 
     g = parser.add_argument_group("OCI registry")
     g.add_argument(
@@ -397,6 +390,18 @@ def _add_release_base_flags(parser: configargparse.ArgParser) -> None:
         metavar="NAME",
         default="artifacts",
         help="OCI artifact image name",
+    )
+
+
+def _add_release_target_flag(parser: configargparse.ArgParser) -> None:
+    """--target flag for publish and pull (not tag)."""
+    g = parser.add_argument_group("target")
+    g.add_argument(
+        "--target",
+        env_var="TARGET",
+        default=None,
+        choices=["amd64", "arm64", "both"],
+        help="artifact target (amd64, arm64, or both; default: --arch value)",
     )
     g.add_argument(
         "--git-sha",
@@ -968,11 +973,16 @@ _RELEASE_SUBCOMMANDS = ("publish", "pull", "tag")
 _RELEASE_SUBCMD_INFO: dict[str, tuple[str, list]] = {
     "publish": (
         "Publish artifacts as a multi-arch OCI image",
-        [_add_common_flags, _add_release_base_flags],
+        [_add_common_flags, _add_release_base_flags, _add_release_target_flag],
     ),
     "pull": (
         "Pull and extract artifacts (amd64, arm64, or both)",
-        [_add_common_flags, _add_release_base_flags, _add_release_pull_output],
+        [
+            _add_common_flags,
+            _add_release_base_flags,
+            _add_release_target_flag,
+            _add_release_pull_output,
+        ],
     ),
     "tag": (
         "Tag all artifact images with a version",
@@ -1077,8 +1087,9 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
         exclude = getattr(args, "version_exclude", None)
         if exclude:
             env_args += ["-e", f"VERSION_EXCLUDE={exclude}"]
-        target = getattr(args, "target", None) or cfg.arch
-        env_args += ["-e", f"TARGET={target}"]
+        if sub in ("publish", "pull"):
+            target = getattr(args, "target", None) or cfg.arch
+            env_args += ["-e", f"TARGET={target}"]
         pull_output = getattr(args, "pull_output", None)
 
         # Build the inner command.
@@ -1119,9 +1130,9 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
     exclude = getattr(args, "version_exclude", None)
     sha = _resolve_git_sha(args, cfg.project_dir)
     tag = oci.compute_version_tag(cfg.project_dir, sha, exclude=exclude)
-    target = getattr(args, "target", None) or cfg.arch
 
     if sub == "publish":
+        target = getattr(args, "target", None) or cfg.arch
         oci.publish(
             cfg,
             target=target,
@@ -1134,6 +1145,7 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
         )
 
     elif sub == "pull":
+        target = getattr(args, "target", None) or cfg.arch
         pull_output = getattr(args, "pull_output", None)
         if pull_output is None:
             rlog.err("--pull-output is required for 'release pull'.")
