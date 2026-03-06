@@ -176,10 +176,6 @@ def publish(
     final_ref = _image_ref(registry, repository, artifact_name, f"{tag}{tag_suffix}")
     out = ensure_dir(cfg.output_dir)
 
-    # Collect artifacts for relevant arch(es)
-    if target != "both":
-        artifacts.collect_kernel(cfg, logger=_log)
-
     all_files: list[Path] = []
     for a in arches:
         files = _collect_arch_artifacts(cfg.project_dir, out, a, _log)
@@ -191,17 +187,19 @@ def publish(
         for f in all_files:
             layer_tars.append(_deterministic_tar(f, out))
 
-        # Push two platform manifests (same content, different platform labels)
+        # Push platform manifests and capture their digests.
+        # Each push overwrites the same tag; the digest is captured before
+        # the next overwrite.  This avoids leftover intermediate tags.
+        image_base = f"{registry}/{repository}/{artifact_name}"
         platforms = ["linux/amd64", "linux/arm64"]
-        temp_refs: list[str] = []
+        digest_refs: list[str] = []
         for platform in platforms:
-            plat_suffix = platform.replace("/", "-")
-            temp_ref = f"{final_ref}-{plat_suffix}"
-            _push_platform_manifest(layer_tars, temp_ref, platform, sha, repository, _log)
-            temp_refs.append(temp_ref)
+            _push_platform_manifest(layer_tars, final_ref, platform, sha, repository, _log)
+            d = crane.digest(final_ref, logger=_log)
+            digest_refs.append(f"{image_base}@{d}")
 
-        # Create multi-arch index
-        crane.index_append(final_ref, temp_refs, logger=_log)
+        # Create multi-arch index (overwrites the tag with the index)
+        crane.index_append(final_ref, digest_refs, logger=_log)
     finally:
         for t in layer_tars:
             t.unlink(missing_ok=True)
