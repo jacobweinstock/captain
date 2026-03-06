@@ -117,12 +117,11 @@ All three images are multi-arch OCI indexes with `linux/amd64` and `linux/arm64`
 
 When a `v*` tag is pushed, the release workflow:
 
-1. Pulls all three OCI image variants
-2. Attaches their contents as downloadable files on the GitHub Release page:
+1. Pulls the combined OCI image (both architectures)
+2. Attaches all artifacts as downloadable files on the GitHub Release page:
    - `vmlinuz-amd64`, `initramfs-amd64.cpio.zst`, `captainos-amd64.iso`, `sha256sums-amd64.txt`
    - `vmlinuz-arm64`, `initramfs-arm64.cpio.zst`, `captainos-arm64.iso`, `sha256sums-arm64.txt`
-   - The combined set (both architectures together)
-3. Tags the OCI images with the clean release version (`vX.Y.Z`, `vX.Y.Z-amd64`, `vX.Y.Z-arm64`)
+3. Tags all three OCI images with the clean release version (`vX.Y.Z`, `vX.Y.Z-amd64`, `vX.Y.Z-arm64`)
 
 ### Release subcommands
 

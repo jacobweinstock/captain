@@ -33,16 +33,6 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Pull release artifacts (amd64)
-        env:
-          VERSION_EXCLUDE: ${{ github.ref_name }}
-        run: ./build.py release pull --target amd64 --pull-output artifacts/amd64
-
-      - name: Pull release artifacts (arm64)
-        env:
-          VERSION_EXCLUDE: ${{ github.ref_name }}
-        run: ./build.py release pull --target arm64 --pull-output artifacts/arm64
-
       - name: Pull release artifacts (both)
         env:
           VERSION_EXCLUDE: ${{ github.ref_name }}
@@ -53,8 +43,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" \
-            artifacts/amd64/* \
-            artifacts/arm64/* \
+            artifacts/both/* \
             --generate-notes \
             --title "${{ github.ref_name }}"
 

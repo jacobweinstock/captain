@@ -134,12 +134,7 @@ def digest(image_ref: str, *, logger: StageLogger | None = None) -> str:
     """Return the digest (``sha256:…``) of *image_ref*."""
     _log = logger or _default_log
     _log.log(f"crane digest {image_ref}")
-    result = subprocess.run(
-        ["crane", "digest", image_ref],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    result = run(["crane", "digest", image_ref], capture=True)
     return result.stdout.strip()
 
 
