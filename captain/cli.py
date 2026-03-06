@@ -366,6 +366,7 @@ def _add_release_base_flags(parser: configargparse.ArgParser) -> None:
         env_var="RELEASE_MODE",
         default="native",
         choices=list(VALID_MODES),
+        metavar="MODE",
         help="release stage execution mode",
     )
 
