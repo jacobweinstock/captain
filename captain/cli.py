@@ -419,6 +419,13 @@ def _add_release_target_flag(parser: configargparse.ArgParser) -> None:
         default=None,
         help="tag to exclude from git-describe version lookup",
     )
+    g.add_argument(
+        "--force",
+        env_var="FORCE",
+        action="store_true",
+        default=False,
+        help="publish even if the image already exists in the registry",
+    )
 
 
 def _add_release_pull_output(parser: configargparse.ArgParser) -> None:
@@ -1092,6 +1099,8 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
         if sub in ("publish", "pull"):
             target = getattr(args, "target", None) or cfg.arch
             env_args += ["-e", f"TARGET={target}"]
+        if getattr(args, "force", False):
+            env_args += ["-e", "FORCE=true"]
         pull_output = getattr(args, "pull_output", None)
 
         # Build the inner command.
@@ -1135,6 +1144,7 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
 
     if sub == "publish":
         target = getattr(args, "target", None) or cfg.arch
+        force = getattr(args, "force", False)
         oci.publish(
             cfg,
             target=target,
@@ -1143,6 +1153,7 @@ def _cmd_release(cfg: Config, extra_args: list[str], args: object = None) -> Non
             artifact_name=artifact_name,
             tag=tag,
             sha=sha,
+            force=force,
             logger=rlog,
         )
 

@@ -24,9 +24,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
-
       - name: Load shared config
         run: cat .github/config.env >> "$GITHUB_ENV"
 
