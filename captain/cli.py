@@ -153,7 +153,7 @@ commands:
         desc = "OCI release workflow: pull (or build) → publish → tag"
         release_cmds = {
             "publish": "Publish artifacts as a multi-arch OCI image",
-            "pull": "Pull and extract artifacts (amd64, arm64, or both)",
+            "pull": "Pull and extract artifacts (amd64, arm64, or combined)",
             "tag": "Tag all artifact images with a version",
         }
         commands_list = "\n".join(f"  {name:14s} {d}" for name, d in release_cmds.items())
@@ -402,8 +402,8 @@ def _add_release_target_flag(parser: configargparse.ArgParser) -> None:
         "--target",
         env_var="TARGET",
         default=None,
-        choices=["amd64", "arm64", "both"],
-        help="artifact target (amd64, arm64, or both; default: --arch value)",
+        choices=["amd64", "arm64", "combined"],
+        help="artifact target (amd64, arm64, or combined; default: --arch value)",
     )
     g.add_argument(
         "--git-sha",
@@ -985,7 +985,7 @@ _RELEASE_SUBCMD_INFO: dict[str, tuple[str, list]] = {
         [_add_common_flags, _add_release_base_flags, _add_release_target_flag],
     ),
     "pull": (
-        "Pull and extract artifacts (amd64, arm64, or both)",
+        "Pull and extract artifacts (amd64, arm64, or combined)",
         [
             _add_common_flags,
             _add_release_base_flags,

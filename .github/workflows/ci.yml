@@ -422,7 +422,7 @@ jobs:
     needs: [publish-per-arch]
     env:
       ARCH: amd64
-      TARGET: both
+      TARGET: combined
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

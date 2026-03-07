@@ -8,12 +8,11 @@ are rootless and require no container runtime.
 from __future__ import annotations
 
 import json
-import os
 import tarfile
 from pathlib import Path
 
 from captain.log import StageLogger, for_stage
-from captain.util import run
+from captain.util import run, safe_extractall
 
 _default_log = for_stage("skopeo")
 
@@ -98,24 +97,6 @@ def copy_to_dir(
     return output_dir
 
 
-def _safe_tar_extract(tar: tarfile.TarFile, output_dir: Path) -> None:
-    """Extract *tar* members into *output_dir*, rejecting unsafe paths.
-
-    Prevents path-traversal attacks where a malicious image could contain
-    entries with ``../`` or absolute paths that write outside the target
-    directory.
-    """
-    resolved_base = output_dir.resolve()
-    for member in tar:
-        member_path = os.path.normpath(member.name)
-        if os.path.isabs(member_path) or member_path.startswith(".."):
-            raise ValueError(f"Refusing to extract tar member with unsafe path: {member.name!r}")
-        dest = (resolved_base / member_path).resolve()
-        if not str(dest).startswith(str(resolved_base) + os.sep) and dest != resolved_base:
-            raise ValueError(f"Tar member escapes output directory: {member.name!r}")
-        tar.extract(member, path=output_dir)
-
-
 def export_image(
     image_ref: str,
     output_dir: Path,
@@ -150,9 +131,8 @@ def export_image(
             if not blob_file.exists():
                 blob_file = tmp_dir / digest_str.split(":")[-1]
             if not blob_file.exists():
-                _log.warn(f"Layer blob not found: {digest_str}")
-                continue
+                raise FileNotFoundError(f"Layer blob not found: {digest_str}")
 
             _log.log(f"Extracting layer {digest_str[:20]}…")
             with tarfile.open(blob_file, "r:*") as tf:
-                _safe_tar_extract(tf, output_dir)
+                safe_extractall(tf, output_dir)

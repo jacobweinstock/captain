@@ -3,7 +3,7 @@
 Each artifact file is pushed as its own layer so that OCI registries
 can deduplicate blobs between per-arch and combined images.
 
-Combined image (``target="both"``, no tag suffix):
+Combined image (``target="combined"``, no tag suffix):
   A multi-arch index where each platform manifest has the native
   arch's layers first, then the other arch's layers (8 layers total).
   ``linux/amd64`` → ``[A1‥A4, B1‥B4]``,
@@ -262,7 +262,7 @@ def _publish_combined(
     digests match exactly between the per-arch and combined images.
 
     If the per-arch images don't exist in the registry yet (e.g.
-    running ``--target both`` locally with no prior per-arch publish),
+    running ``--target combined`` locally with no prior per-arch publish),
     they are built and pushed first as a fallback.
 
     Skips the combined image if it already exists (unless *force*).
@@ -340,20 +340,20 @@ def publish(
     so OCI registries deduplicate blobs automatically.
 
     *target* selects which artifacts to include: ``"amd64"``,
-    ``"arm64"``, or ``"both"``.
+    ``"arm64"``, or ``"combined"``.
 
     Images are skipped if they already exist in the registry
     (unless *force* is ``True``).  For per-arch targets this prevents
     overwriting images that the combined image depends on.
     """
     _log = logger or _default_log
-    arches = list(_ARCHES) if target == "both" else [target]
-    tag_suffix = "" if target == "both" else f"-{target}"
+    arches = list(_ARCHES) if target == "combined" else [target]
+    tag_suffix = "" if target == "combined" else f"-{target}"
     full_tag = f"{tag}{tag_suffix}"
     final_ref = _image_ref(registry, repository, artifact_name, full_tag)
 
     # For per-arch targets, skip if the image already exists.
-    if target != "both" and not force and skopeo.image_exists(final_ref, logger=_log):
+    if target != "combined" and not force and skopeo.image_exists(final_ref, logger=_log):
         _log.log(f"{final_ref} already exists — skipping (use --force to overwrite)")
         return
 
@@ -376,7 +376,7 @@ def publish(
         arch_layer_tars[arch] = [_deterministic_tar(f, out) for f in files]
 
     try:
-        if target == "both":
+        if target == "combined":
             _publish_combined(
                 arch_layer_tars=arch_layer_tars,
                 registry=registry,
@@ -433,12 +433,12 @@ def pull(
 ) -> None:
     """Pull and extract OCI artifacts.
 
-    *target* may be ``"amd64"``, ``"arm64"``, or ``"both"``.  The tag
+    *target* may be ``"amd64"``, ``"arm64"``, or ``"combined"``.  The tag
     suffix is ``-{target}`` for single architectures, or bare ``{tag}``
-    for ``"both"``.
+    for ``"combined"``.
     """
     _log = logger or _default_log
-    tag_suffix = "" if target == "both" else f"-{target}"
+    tag_suffix = "" if target == "combined" else f"-{target}"
     ref = _image_ref(registry, repository, artifact_name, f"{tag}{tag_suffix}")
     skopeo.export_image(ref, output_dir, logger=_log)
 

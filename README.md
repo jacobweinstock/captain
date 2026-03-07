@@ -130,7 +130,7 @@ When a `v*` tag is pushed, the release workflow:
 ./build.py release publish --target amd64
 
 # Pull and extract artifacts
-./build.py release pull --target both --pull-output ./out/release/
+./build.py release pull --target combined --pull-output ./out/release/
 
 # Tag all artifact images with a release version
 ./build.py release tag v1.0.0
