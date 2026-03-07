@@ -29,10 +29,12 @@ registry.  Read operations (digest, tag, export) use ``skopeo``.
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from captain import artifacts, buildah, skopeo
 from captain.config import Config
@@ -187,7 +189,10 @@ def _build_platform_image(
     }
 
     # Build one layer per tar: from base → add file → commit → repeat.
+    # Track intermediate image IDs so they can be cleaned up afterwards;
+    # only the final image (returned to the caller) is kept.
     current: str = base
+    intermediates: list[str] = []
     for i, tar_path in enumerate(layer_tars):
         is_last = i == len(layer_tars) - 1
         ctr = buildah.from_image(current, platform=platform, logger=logger)
@@ -201,9 +206,43 @@ def _build_platform_image(
                 labels=oci_metadata,
                 logger=logger,
             )
+        prev = current
         current = buildah.commit(ctr, timestamp=epoch, logger=logger)
+        if prev != base:
+            intermediates.append(prev)
+
+    for img in intermediates:
+        with contextlib.suppress(Exception):
+            buildah.rmi(img, logger=logger)
 
     return current
+
+
+def _create_push_cleanup(
+    image_ids: list[str],
+    dest_ref: str,
+    logger: StageLogger,
+) -> None:
+    """Create a manifest list from *image_ids*, push it to *dest_ref*, and clean up.
+
+    Uses a temporary local manifest name to avoid collisions on repeated
+    publishes.  After a successful (or failed) push, the local manifest
+    and all *image_ids* are removed on a best-effort basis.
+    """
+    temp_name = f"captain-local-{uuid4().hex[:12]}"
+    manifest_id: str | None = None
+    try:
+        manifest_id = buildah.manifest_create(temp_name, logger=logger)
+        for image_id in image_ids:
+            buildah.manifest_add(manifest_id, image_id, logger=logger)
+        buildah.manifest_push(manifest_id, dest_ref, logger=logger)
+    finally:
+        if manifest_id is not None:
+            with contextlib.suppress(Exception):
+                buildah.rmi(manifest_id, logger=logger)
+        for image_id in image_ids:
+            with contextlib.suppress(Exception):
+                buildah.rmi(image_id, logger=logger)
 
 
 def _publish_single_arch(
@@ -236,10 +275,7 @@ def _publish_single_arch(
         )
         image_ids.append(image_id)
 
-    manifest_id = buildah.manifest_create(ref, logger=logger)
-    for image_id in image_ids:
-        buildah.manifest_add(manifest_id, image_id, logger=logger)
-    buildah.manifest_push(manifest_id, ref, logger=logger)
+    _create_push_cleanup(image_ids, ref, logger)
 
 
 def _publish_combined(
@@ -314,10 +350,7 @@ def _publish_combined(
         )
         image_ids.append(image_id)
 
-    manifest_id = buildah.manifest_create(combined_ref, logger=logger)
-    for image_id in image_ids:
-        buildah.manifest_add(manifest_id, image_id, logger=logger)
-    buildah.manifest_push(manifest_id, combined_ref, logger=logger)
+    _create_push_cleanup(image_ids, combined_ref, logger)
     return True
 
 

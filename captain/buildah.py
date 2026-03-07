@@ -162,3 +162,14 @@ def manifest_push(
     _log = logger or _default_log
     _log.log(f"buildah manifest push → {dest}")
     run(["buildah", "manifest", "push", "--all", manifest, f"docker://{dest}"])
+
+
+def rmi(
+    image: str,
+    *,
+    logger: StageLogger | None = None,
+) -> None:
+    """Remove a local image or manifest list."""
+    _log = logger or _default_log
+    _log.log(f"buildah rmi {image}")
+    run(["buildah", "rmi", image])
