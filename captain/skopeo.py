@@ -60,10 +60,12 @@ def copy(
     *,
     logger: StageLogger | None = None,
 ) -> None:
-    """Copy an image from *src* to *dest* (both ``docker://`` refs).
+    """Copy an image from *src* to *dest*.
 
-    Typically used for retagging: the source and destination differ only
-    in the tag component.
+    *src* and *dest* are plain image references (e.g.
+    ``ghcr.io/org/repo:tag``); the ``docker://`` transport prefix is
+    added automatically.  Typically used for retagging: the source and
+    destination differ only in the tag component.
     """
     _log = logger or _default_log
     _log.log(f"skopeo copy {src} → {dest}")
@@ -126,8 +128,10 @@ def export_image(
 
         for layer in layers:
             digest_str = layer["digest"]  # e.g. "sha256:abc123..."
-            blob_file = tmp_dir / digest_str.replace(":", "-")
-            # Fallback: some skopeo versions use just the hash
+            # skopeo stores blobs under several possible filenames.
+            blob_file = tmp_dir / digest_str
+            if not blob_file.exists():
+                blob_file = tmp_dir / digest_str.replace(":", "-")
             if not blob_file.exists():
                 blob_file = tmp_dir / digest_str.split(":")[-1]
             if not blob_file.exists():

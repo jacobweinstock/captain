@@ -119,6 +119,13 @@ def run_in_release(cfg: Config, *extra_args: str) -> None:
         "-e",
         "BUILDAH_ISOLATION=chroot",
     ]
+    # Forward host registry credentials so buildah/skopeo can authenticate.
+    # The caller sets these env vars on the host (e.g. via docker login or
+    # CI secrets); they are passed through to the container as-is.
+    for var in ("REGISTRY_AUTH_FILE", "REGISTRY_USERNAME", "REGISTRY_PASSWORD"):
+        val = os.environ.get(var)
+        if val:
+            docker_args += ["-e", f"{var}={val}"]
     docker_args.extend(extra_args)
     run(docker_args)
 

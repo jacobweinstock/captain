@@ -111,7 +111,7 @@ Each artifact file is pushed as its own OCI layer. Deterministic tar creation (z
 All three images are multi-arch OCI indexes with `linux/amd64` and `linux/arm64` platform entries pointing to the same content, so any platform can pull them. Images are compatible with:
 
 - **containerd** — valid `rootfs.diff_ids` in the config; Kubernetes image-volume mounts work
-- **crane export** — extracts individual artifact files for release workflows
+- **skopeo** — extracts individual artifact files for release workflows
 
 ### GitHub Release
 
@@ -184,7 +184,8 @@ Each stage can be executed in one of three modes:
 │   ├── tools.py                # Binary tool downloader
 │   ├── artifacts.py            # Artifact collection & checksums
 │   ├── oci.py                  # OCI artifact publish/pull/tag
-│   ├── crane.py                # crane CLI wrapper
+│   ├── buildah.py              # buildah CLI wrapper (image construction)
+│   ├── skopeo.py               # skopeo CLI wrapper (inspect/copy/export)
 │   ├── iso.py                  # ISO image assembly
 │   ├── qemu.py                 # QEMU boot testing
 │   ├── log.py                  # Colored logging

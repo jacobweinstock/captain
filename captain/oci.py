@@ -161,8 +161,9 @@ def _build_platform_image(
 ) -> str:
     """Build an OCI image locally for *platform*.
 
-    Each tar becomes its own OCI layer (add → commit cycle).  Only the
-    final commit carries the image metadata and timestamp.
+    Each tar becomes its own OCI layer (add → commit cycle).  All commits
+    use the same fixed timestamp; only the final commit carries the image
+    metadata.
 
     *base* is the starting image — ``"scratch"`` for a new image, or a
     ``docker://`` ref to extend an existing registry image.  When a
@@ -207,7 +208,6 @@ def _build_platform_image(
 
 def _publish_single_arch(
     *,
-    arch: str,
     layer_tars: list[Path],
     ref: str,
     tag: str,
@@ -220,7 +220,7 @@ def _publish_single_arch(
     """Build a per-arch multi-arch index and push it.
 
     Both platform entries (linux/amd64 and linux/arm64) carry the same
-    4 layers — only the artifacts for *arch*.
+    4 layers.
     """
     image_ids: list[str] = []
     for platform_arch in _ARCHES:
@@ -253,7 +253,7 @@ def _publish_combined(
     created: str,
     force: bool = False,
     logger: StageLogger,
-) -> None:
+) -> bool:
     """Build and push the combined multi-arch image.
 
     Each platform manifest has the native arch's layers first, then the
@@ -272,7 +272,7 @@ def _publish_combined(
     # Skip if the combined image already exists.
     if not force and skopeo.image_exists(combined_ref, logger=logger):
         logger.log(f"{combined_ref} already exists — skipping (use --force to overwrite)")
-        return
+        return False
 
     # Ensure per-arch images exist in the registry.
     for arch in _ARCHES:
@@ -285,7 +285,6 @@ def _publish_combined(
                 f"{per_arch_ref} not found in registry — building and pushing before combined image"
             )
             _publish_single_arch(
-                arch=arch,
                 layer_tars=arch_layer_tars[arch],
                 ref=per_arch_ref,
                 tag=per_arch_tag,
@@ -319,6 +318,7 @@ def _publish_combined(
     for image_id in image_ids:
         buildah.manifest_add(manifest_id, image_id, logger=logger)
     buildah.manifest_push(manifest_id, combined_ref, logger=logger)
+    return True
 
 
 def publish(
@@ -375,9 +375,10 @@ def publish(
     for arch, files in arch_files.items():
         arch_layer_tars[arch] = [_deterministic_tar(f, out) for f in files]
 
+    pushed = True
     try:
         if target == "combined":
-            _publish_combined(
+            pushed = _publish_combined(
                 arch_layer_tars=arch_layer_tars,
                 registry=registry,
                 repository=repository,
@@ -390,7 +391,6 @@ def publish(
             )
         else:
             _publish_single_arch(
-                arch=target,
                 layer_tars=arch_layer_tars[target],
                 ref=final_ref,
                 tag=full_tag,
@@ -404,6 +404,9 @@ def publish(
         for tars in arch_layer_tars.values():
             for t in tars:
                 t.unlink(missing_ok=True)
+
+    if not pushed:
+        return
 
     # Recap
     artifact_names: list[str] = []
