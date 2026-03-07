@@ -69,7 +69,7 @@ def copy(
     """
     _log = logger or _default_log
     _log.log(f"skopeo copy {src} → {dest}")
-    run(["skopeo", "copy", f"docker://{src}", f"docker://{dest}"])
+    run(["skopeo", "copy", "--all", f"docker://{src}", f"docker://{dest}"])
 
 
 def copy_to_dir(
