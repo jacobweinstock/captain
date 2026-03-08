@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import tarfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -74,8 +75,18 @@ def download_kernel(version: str, dest_dir: Path) -> Path:
     tarball = dest_dir / f"linux-{version}.tar.xz"
 
     _log.log(f"Downloading kernel {version}...")
+    _log.log(f"  URL: {url}")
     ensure_dir(dest_dir)
-    _urlretrieve_with_timeout(url, tarball, reporthook=_progress_hook)
+    try:
+        _urlretrieve_with_timeout(url, tarball, reporthook=_progress_hook)
+    except urllib.error.HTTPError as exc:
+        print()  # newline after progress
+        _log.err(f"Download failed: {exc} — {url}")
+        raise SystemExit(1) from None
+    except urllib.error.URLError as exc:
+        print()  # newline after progress
+        _log.err(f"Download failed: {exc.reason} — {url}")
+        raise SystemExit(1) from None
     print()  # newline after progress
 
     _log.log("Extracting kernel source...")
@@ -86,38 +97,89 @@ def download_kernel(version: str, dest_dir: Path) -> Path:
     return src_dir
 
 
+def _kernel_branch(version: str) -> str:
+    """Derive the stable branch prefix from a full kernel version.
+
+    ``"6.18.16"`` → ``"6.18.y"``
+    """
+    parts = version.split(".")
+    if len(parts) < 2:
+        _log.err(f"Invalid kernel version format: {version}")
+        raise SystemExit(1)
+    return f"{parts[0]}.{parts[1]}.y"
+
+
+def _find_defconfig(cfg: Config) -> Path:
+    """Locate the defconfig for the current kernel version and architecture.
+
+    When ``cfg.kernel_config`` is set, that path is used directly.
+    Otherwise returns ``kernel.configs/{major}.{minor}.y.{arch}``.
+    Exits with a helpful error if no matching config file is found.
+    """
+    if cfg.kernel_config:
+        explicit = Path(cfg.kernel_config)
+        if not explicit.is_absolute():
+            explicit = cfg.project_dir / explicit
+        if explicit.is_file():
+            return explicit
+        _log.err(f"Kernel config not found: {explicit}")
+        raise SystemExit(1)
+
+    ai = cfg.arch_info
+    branch = _kernel_branch(cfg.kernel_version)
+    defconfig = cfg.project_dir / "kernel.configs" / f"{branch}.{ai.arch}"
+    if defconfig.is_file():
+        return defconfig
+
+    # List available branches for a helpful error message.
+    configs_dir = cfg.project_dir / "kernel.configs"
+    available = sorted(
+        {
+            p.name.rsplit(".", 1)[0]
+            for p in configs_dir.glob(f"*.{ai.arch}")
+            if not p.name.startswith(".")
+        }
+    )
+    avail_str = ", ".join(available) if available else "(none)"
+    _log.err(
+        f"No kernel config found for {branch} on {ai.arch}\n"
+        f"    Expected: {defconfig}\n"
+        f"    Available branches for {ai.arch}: {avail_str}"
+    )
+    raise SystemExit(1)
+
+
 def configure_kernel(cfg: Config, src_dir: Path) -> None:
     """Apply defconfig and run olddefconfig."""
     ai = cfg.arch_info
-    defconfig = cfg.project_dir / "config" / f"defconfig.{ai.arch}"
+    defconfig = _find_defconfig(cfg)
 
     make_env = {"ARCH": ai.kernel_arch}
     if ai.cross_compile:
         make_env["CROSS_COMPILE"] = ai.cross_compile
 
-    if defconfig.is_file():
-        _log.log(f"Using defconfig: {defconfig}")
-        shutil.copy2(defconfig, src_dir / ".config")
-        run(["make", "olddefconfig"], env=make_env, cwd=src_dir)
-        # Save the resolved config for debugging
-        resolved = cfg.project_dir / "config" / f".config.resolved.{ai.arch}"
-        shutil.copy2(src_dir / ".config", resolved)
-        _log.log(f"Resolved config saved to config/.config.resolved.{ai.arch}")
-    else:
-        _log.log(f"No defconfig found at {defconfig}, using default")
-        run(["make", "defconfig"], env=make_env, cwd=src_dir)
+    _log.log(f"Using defconfig: {defconfig}")
+    shutil.copy2(defconfig, src_dir / ".config")
+    run(["make", "olddefconfig"], env=make_env, cwd=src_dir)
+    # Save the resolved config for debugging
+    branch = _kernel_branch(cfg.kernel_version)
+    resolved = cfg.project_dir / "kernel.configs" / f".config.resolved.{branch}.{ai.arch}"
+    shutil.copy2(src_dir / ".config", resolved)
+    _log.log(f"Resolved config saved to kernel.configs/.config.resolved.{branch}.{ai.arch}")
 
     # Increase COMMAND_LINE_SIZE on x86_64 (Tinkerbell needs large cmdlines)
     if ai.kernel_arch == "x86_64":
         _log.log("Increasing COMMAND_LINE_SIZE to 4096 (x86_64)...")
         setup_h = src_dir / "arch" / "x86" / "include" / "asm" / "setup.h"
         text = setup_h.read_text()
-        text = re.sub(
+        new_text = re.sub(
             r"#define COMMAND_LINE_SIZE\s+2048",
             "#define COMMAND_LINE_SIZE 4096",
             text,
         )
-        setup_h.write_text(text)
+        if new_text == text:
+            _log.warn("COMMAND_LINE_SIZE patch did not match — the kernel default may have changed")
+        setup_h.write_text(new_text)
 
 
 def build_kernel(cfg: Config, src_dir: Path) -> str:

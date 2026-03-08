@@ -5,9 +5,6 @@ on:
       - "main"
   pull_request:
 
-env:
-  KERNEL_VERSION: "6.12.69"
-
 permissions:
   contents: read
   packages: write
@@ -47,14 +44,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Detect kernel version
+        run: |
+          KERNEL_VERSION=$(sed -n 's/^DEFAULT_KERNEL_VERSION = "\(.*\)"/\1/p' captain/config.py)
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
+
       - name: Check amd64 kernel cache
         id: amd64-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             mkosi.output/extra-tree/amd64/usr/lib/modules
-            mkosi.output/vmlinuz/amd64
-          key: kernel-amd64-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+            mkosi.output/vmlinuz/${{ env.KERNEL_VERSION }}/amd64
+          key: kernel-amd64-${{ hashFiles('kernel.configs/*', 'Dockerfile') }}
           lookup-only: true
 
       - name: Check arm64 kernel cache
@@ -63,8 +65,8 @@ jobs:
         with:
           path: |
             mkosi.output/extra-tree/arm64/usr/lib/modules
-            mkosi.output/vmlinuz/arm64
-          key: kernel-arm64-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+            mkosi.output/vmlinuz/${{ env.KERNEL_VERSION }}/arm64
+          key: kernel-arm64-${{ hashFiles('kernel.configs/*', 'Dockerfile') }}
           lookup-only: true
 
   # -------------------------------------------------------------------
@@ -98,6 +100,11 @@ jobs:
 
       - name: Load shared config
         run: cat .github/config.env >> "$GITHUB_ENV"
+
+      - name: Detect kernel version
+        run: |
+          KERNEL_VERSION=$(sed -n 's/^DEFAULT_KERNEL_VERSION = "\(.*\)"/\1/p' captain/config.py)
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -138,8 +145,8 @@ jobs:
         with:
           path: |
             mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
-            mkosi.output/vmlinuz/${{ matrix.arch }}
-          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+            mkosi.output/vmlinuz/${{ env.KERNEL_VERSION }}/${{ matrix.arch }}
+          key: kernel-${{ matrix.arch }}-${{ hashFiles('kernel.configs/*', 'Dockerfile') }}
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -156,8 +163,8 @@ jobs:
         with:
           path: |
             mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
-            mkosi.output/vmlinuz/${{ matrix.arch }}
-          key: kernel-${{ matrix.arch }}-${{ env.KERNEL_VERSION }}-${{ hashFiles('config/defconfig.*', 'Dockerfile') }}
+            mkosi.output/vmlinuz/${{ env.KERNEL_VERSION }}/${{ matrix.arch }}
+          key: kernel-${{ matrix.arch }}-${{ hashFiles('kernel.configs/*', 'Dockerfile') }}
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
@@ -165,7 +172,7 @@ jobs:
           name: kernel-${{ matrix.arch }}
           path: |
             mkosi.output/extra-tree/${{ matrix.arch }}/usr/lib/modules
-            mkosi.output/vmlinuz/${{ matrix.arch }}
+            mkosi.output/vmlinuz/${{ env.KERNEL_VERSION }}/${{ matrix.arch }}
           retention-days: 1
 
   # -------------------------------------------------------------------
@@ -296,6 +303,11 @@ jobs:
       - name: Load shared config
         run: cat .github/config.env >> "$GITHUB_ENV"
 
+      - name: Detect kernel version
+        run: |
+          KERNEL_VERSION=$(sed -n 's/^DEFAULT_KERNEL_VERSION = "\(.*\)"/\1/p' captain/config.py)
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -343,8 +355,9 @@ jobs:
 
       - name: Stage initramfs for ISO build
         run: |
-          mkdir -p mkosi.output/initramfs/${{ matrix.arch }}
-          cp out/initramfs-${{ matrix.arch }}.cpio.zst mkosi.output/initramfs/${{ matrix.arch }}/image.cpio.zst
+          mkdir -p "mkosi.output/initramfs/${KERNEL_VERSION}/${{ matrix.arch }}"
+          cp "out/initramfs-${KERNEL_VERSION}-${{ matrix.arch }}.cpio.zst" \
+             "mkosi.output/initramfs/${KERNEL_VERSION}/${{ matrix.arch }}/image.cpio.zst"
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -356,7 +369,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: iso-${{ matrix.arch }}
-          path: out/captainos-${{ matrix.arch }}.iso
+          path: out/captainos-${{ env.KERNEL_VERSION }}-${{ matrix.arch }}.iso
           retention-days: 1
 
   # -------------------------------------------------------------------

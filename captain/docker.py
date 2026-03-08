@@ -177,6 +177,10 @@ def run_in_builder(cfg: Config, *extra_args: str) -> None:
         docker_args.extend(["-v", f"{kernel_src_path}:/work/kernel-src:ro"])
         docker_args.extend(["-e", "KERNEL_SRC=/work/kernel-src"])
 
+    # Forward kernel config override (path is relative to /work inside the container)
+    if cfg.kernel_config is not None:
+        docker_args.extend(["-e", f"KERNEL_CONFIG={cfg.kernel_config}"])
+
     docker_args.extend(extra_args)
     run(docker_args)
 

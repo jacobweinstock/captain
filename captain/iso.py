@@ -102,7 +102,7 @@ def build(cfg: Config) -> None:
 
     # Build the ISO
     iso_dir = ensure_dir(cfg.iso_output)
-    iso_path = iso_dir / f"captainos-{cfg.arch}.iso"
+    iso_path = iso_dir / f"captainos-{cfg.kernel_version}-{cfg.arch}.iso"
 
     _log.log(f"Building ISO with grub-mkrescue ({grub_platform})...")
     grub_mkrescue = shutil.which("grub-mkrescue")
