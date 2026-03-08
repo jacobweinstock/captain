@@ -68,7 +68,7 @@ architecture:
 
 1. Copies `kernel.configs/{major}.{minor}.y.{arch}` into the source tree as `.config`.
 2. Runs `make olddefconfig` to resolve any new symbols against defaults.
-3. Saves the fully resolved config to `kernel.configs/.config.resolved.{arch}` for
+3. Saves the fully resolved config to `kernel.configs/.config.resolved.{branch}.{arch}` for
    debugging.
 
 If no defconfig file exists for the target kernel version and arch, the build
@@ -105,7 +105,7 @@ exact built kernel version string (e.g. `6.18.16-captainos`).
 `kernel.install_kernel()` places the built artifacts into the output tree:
 
 1. **Module installation** — `make INSTALL_MOD_PATH=... modules_install`
-   installs modules to `mkosi.output/extra-tree/{arch}/`.
+   installs modules to `mkosi.output/kernel/{version}/{arch}/modules/`.
 2. **Strip** — Debug symbols are stripped from every `.ko` file with
    `strip --strip-unneeded`.
 3. **Compress** — Modules are compressed with `zstd --rm -q -19` producing
@@ -119,9 +119,9 @@ exact built kernel version string (e.g. `6.18.16-captainos`).
 6. **depmod** — `depmod -a` regenerates module dependency metadata for
    the compressed `.ko.zst` files.
 7. **Kernel image** — The kernel image (`vmlinuz-{version}`) is copied to
-   `mkosi.output/vmlinuz/{arch}/`.  It is kept separate from the extra-tree
-   so it is **not** included in the initramfs CPIO — iPXE loads the kernel
-   independently.
+   `mkosi.output/kernel/{kernel_version}/{arch}/`.  It is kept separate from
+   the extra-tree so it is **not** included in the initramfs CPIO — iPXE loads
+   the kernel independently.
 
 ## Output Layout
 
@@ -129,26 +129,30 @@ After a successful build, the kernel stage produces:
 
 ```
 mkosi.output/
-├── extra-tree/{arch}/
-│   └── usr/lib/modules/{version}/
-│       ├── kernel/...          # compressed .ko.zst module files
-│       ├── modules.dep
-│       ├── modules.dep.bin
-│       └── ...
-└── vmlinuz/{arch}/
-    └── vmlinuz-{version}       # kernel image (bzImage or Image)
+├── tools/{arch}/                   # tools only (containerd, runc, etc.)
+│   ├── usr/local/bin/
+│   └── opt/cni/bin/
+└── kernel/{kernel_version}/{arch}/
+    ├── vmlinuz-{version}           # kernel image (bzImage or Image)
+    └── modules/                    # passed as --extra-tree to mkosi
+        └── usr/lib/modules/{version}/
+            ├── kernel/...          # compressed .ko.zst module files
+            ├── modules.dep
+            ├── modules.dep.bin
+            └── ...
 ```
 
-The extra-tree is later merged into the initramfs by mkosi via
-`--extra-tree=`, and the final artifacts are collected into `out/` by
-the `artifacts.collect_kernel()` function as `out/vmlinuz-{arch}`.
+The tools and modules subtrees are both passed to mkosi via
+separate `--extra-tree=` flags and merged into the initramfs.  The vmlinuz
+image is collected into `out/` by `artifacts.collect_kernel()` as
+`out/vmlinuz-{kernel_version}-{arch}`.
 
 ## Idempotency
 
 The CLI checks for existing outputs before starting:
 
-- If both `mkosi.output/extra-tree/{arch}/usr/lib/modules/` and
-  `mkosi.output/vmlinuz/{arch}/vmlinuz-*` exist, the build is skipped.
+- If both `mkosi.output/kernel/{kernel_version}/{arch}/modules/usr/lib/modules/` and
+  `mkosi.output/kernel/{kernel_version}/{arch}/vmlinuz-*` exist, the build is skipped.
 - Use `--force-kernel` (or `FORCE_KERNEL=1`) to force a rebuild.
 - If modules exist but the vmlinuz is missing, the kernel is rebuilt
   automatically.
@@ -157,15 +161,13 @@ The CLI checks for existing outputs before starting:
 
 Architecture-specific defconfigs live in the `kernel.configs/` directory,
 named by stable branch: `{major}.{minor}.y.{arch}`.  This allows
-multiple kernel versions to coexist — each stable branch (e.g. 6.12.y,
-6.18.y) has its own config per architecture.
+multiple kernel versions to coexist — each stable branch (e.g. 6.18.y,
+6.19.y) has its own config per architecture.
 
-- `kernel.configs/6.12.y.amd64` — x86_64 config derived from the HookOS
-  generic-6.6.y-x86_64 proven config, adapted for kernel 6.12.
-- `kernel.configs/6.12.y.arm64` — arm64 config based on the kernel's
-  default with targeted additions for CaptainOS.
 - `kernel.configs/6.18.y.amd64` — x86_64 config adapted for kernel 6.18.
 - `kernel.configs/6.18.y.arm64` — arm64 config adapted for kernel 6.18.
+- `kernel.configs/6.19.y.amd64` — x86_64 config adapted for kernel 6.19.
+- `kernel.configs/6.19.y.arm64` — arm64 config adapted for kernel 6.19.
 
 The default kernel version is defined as `DEFAULT_KERNEL_VERSION` in
 `captain/config.py` and can be overridden via `--kernel-version` or

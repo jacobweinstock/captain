@@ -90,6 +90,7 @@ VALID_MODES = ("docker", "native", "skip")
 # Used by _extract_command to avoid treating a flag value as a subcommand.
 _BOOLEAN_FLAGS = frozenset(
     {
+        "--all",
         "--force-kernel",
         "--force-tools",
         "--force-iso",
@@ -621,8 +622,8 @@ def _build_kernel_stage(cfg: Config) -> None:
         return
 
     # --- idempotency --------------------------------------------------
-    modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
-    vmlinuz_dir = cfg.vmlinuz_output
+    modules_dir = cfg.modules_output / "usr" / "lib" / "modules"
+    vmlinuz_dir = cfg.kernel_output
     has_vmlinuz = vmlinuz_dir.is_dir() and any(vmlinuz_dir.glob("vmlinuz-*"))
 
     if modules_dir.is_dir() and has_vmlinuz and not cfg.force_kernel:
@@ -658,8 +659,7 @@ def _build_kernel_stage(cfg: Config) -> None:
         cfg,
         klog,
         [
-            f"/work/mkosi.output/extra-tree/{cfg.arch}",
-            f"/work/mkosi.output/vmlinuz/{cfg.kernel_version}/{cfg.arch}",
+            f"/work/mkosi.output/kernel/{cfg.kernel_version}/{cfg.arch}",
             "/work/out",
         ],
     )
@@ -713,13 +713,15 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
             ilog.err("Install them or set --mkosi-mode=docker.")
             raise SystemExit(1)
         ilog.log("Building initrd with mkosi (native)...")
-        extra_tree = str(cfg.extra_tree_output)
+        tools_tree = str(cfg.tools_output)
+        modules_tree = str(cfg.modules_output)
         output_dir = str(cfg.initramfs_output)
         run(
             [
                 "mkosi",
                 f"--architecture={cfg.arch_info.mkosi_arch}",
-                f"--extra-tree={extra_tree}",
+                f"--extra-tree={tools_tree}",
+                f"--extra-tree={modules_tree}",
                 f"--output-dir={output_dir}",
                 "build",
                 *mkosi_args,
@@ -731,11 +733,13 @@ def _build_mkosi_stage(cfg: Config, extra_args: list[str]) -> None:
     # --- docker -------------------------------------------------------
     docker.build_builder(cfg, logger=ilog)
     ilog.log("Building initrd with mkosi (docker)...")
-    extra_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+    tools_tree = f"/work/mkosi.output/tools/{cfg.arch}"
+    modules_tree = f"/work/mkosi.output/kernel/{cfg.kernel_version}/{cfg.arch}/modules"
     output_dir = f"/work/mkosi.output/initramfs/{cfg.kernel_version}/{cfg.arch}"
     docker.run_mkosi(
         cfg,
-        f"--extra-tree={extra_tree}",
+        f"--extra-tree={tools_tree}",
+        f"--extra-tree={modules_tree}",
         f"--output-dir={output_dir}",
         "build",
         *mkosi_args,
@@ -824,7 +828,7 @@ def _check_kernel_modules(cfg: Config) -> None:
     producing an initramfs without modules.
     """
     ilog = for_stage("initramfs")
-    modules_dir = cfg.extra_tree_output / "usr" / "lib" / "modules"
+    modules_dir = cfg.modules_output / "usr" / "lib" / "modules"
     if not modules_dir.is_dir():
         ilog.err(f"Kernel modules directory not found: {modules_dir}")
         ilog.err("Ensure the kernel build artifacts are downloaded correctly.")
@@ -901,19 +905,20 @@ def _clean_version(cfg: Config, clog: StageLogger) -> None:
 
     # Version-specific directories under mkosi.output/{stage}/{version}/{arch}
     version_dirs = [
-        mkosi_output / "vmlinuz" / kver,
-        mkosi_output / "initramfs" / kver,
-        mkosi_output / "iso" / kver,
-        mkosi_output / "iso-staging" / kver,
+        mkosi_output / "kernel" / kver / cfg.arch,
+        mkosi_output / "initramfs" / kver / cfg.arch,
+        mkosi_output / "iso" / kver / cfg.arch,
+        mkosi_output / "iso-staging" / kver / cfg.arch,
     ]
 
     has_docker = shutil.which("docker") is not None
     existing = [d for d in version_dirs if d.exists()]
     if existing and has_docker:
-        # Use Docker to remove root-owned files from mkosi
-        container_paths = " ".join(
+        # Use Docker to remove root-owned files from mkosi.
+        # Invoke rm directly (no shell) to avoid injection via path components.
+        container_path_args = [
             f"/work/mkosi.output/{d.relative_to(mkosi_output)}" for d in existing
-        )
+        ]
         run(
             [
                 "docker",
@@ -924,9 +929,10 @@ def _clean_version(cfg: Config, clog: StageLogger) -> None:
                 "-w",
                 "/work",
                 "debian:trixie",
-                "sh",
-                "-c",
-                f"rm -rf {container_paths}",
+                "rm",
+                "-rf",
+                "--",
+                *container_path_args,
             ],
         )
     elif existing:
@@ -971,8 +977,8 @@ def _clean_all(cfg: Config, clog: StageLogger) -> None:
                     "-c",
                     "rm -rf /work/mkosi.output/image*"
                     " /work/mkosi.output/initramfs"
-                    " /work/mkosi.output/vmlinuz"
-                    " /work/mkosi.output/extra-tree"
+                    " /work/mkosi.output/kernel"
+                    " /work/mkosi.output/tools"
                     " /work/mkosi.output/iso"
                     " /work/mkosi.output/iso-staging"
                     " /work/mkosi.cache",
@@ -980,7 +986,7 @@ def _clean_all(cfg: Config, clog: StageLogger) -> None:
             )
     else:
         # No Docker available — remove directly (may need sudo for root-owned mkosi files)
-        for pattern in ("image*", "initramfs", "vmlinuz", "extra-tree", "iso", "iso-staging"):
+        for pattern in ("image*", "initramfs", "kernel", "tools", "iso", "iso-staging"):
             for p in mkosi_output.glob(pattern):
                 if p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)
@@ -997,16 +1003,19 @@ def _clean_all(cfg: Config, clog: StageLogger) -> None:
 def _cmd_summary(cfg: Config, _extra_args: list[str]) -> None:
     """Print mkosi configuration summary."""
     slog = for_stage("summary")
-    extra_tree = str(cfg.extra_tree_output)
+    tools_tree = str(cfg.tools_output)
+    modules_tree = str(cfg.modules_output)
     output_dir = str(cfg.initramfs_output)
     match cfg.mkosi_mode:
         case "docker":
             docker.build_builder(cfg, logger=slog)
-            container_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+            container_tree = f"/work/mkosi.output/tools/{cfg.arch}"
+            container_modules = f"/work/mkosi.output/kernel/{cfg.kernel_version}/{cfg.arch}/modules"
             container_outdir = f"/work/mkosi.output/initramfs/{cfg.kernel_version}/{cfg.arch}"
             docker.run_mkosi(
                 cfg,
                 f"--extra-tree={container_tree}",
+                f"--extra-tree={container_modules}",
                 f"--output-dir={container_outdir}",
                 "summary",
                 logger=slog,
@@ -1016,7 +1025,8 @@ def _cmd_summary(cfg: Config, _extra_args: list[str]) -> None:
                 [
                     "mkosi",
                     f"--architecture={cfg.arch_info.mkosi_arch}",
-                    f"--extra-tree={extra_tree}",
+                    f"--extra-tree={tools_tree}",
+                    f"--extra-tree={modules_tree}",
                     f"--output-dir={output_dir}",
                     "summary",
                 ],
@@ -1345,16 +1355,21 @@ def main(project_dir: Path | None = None) -> None:
         # Pass through to mkosi (shouldn't happen with _extract_command
         # but kept as a safety net).
         mlog = for_stage("mkosi")
-        extra_tree = str(cfg.extra_tree_output)
+        tools_tree = str(cfg.tools_output)
+        modules_tree = str(cfg.modules_output)
         output_dir = str(cfg.initramfs_output)
         match cfg.mkosi_mode:
             case "docker":
                 docker.build_builder(cfg, logger=mlog)
-                container_tree = f"/work/mkosi.output/extra-tree/{cfg.arch}"
+                container_tree = f"/work/mkosi.output/tools/{cfg.arch}"
+                container_modules = (
+                    f"/work/mkosi.output/kernel/{cfg.kernel_version}/{cfg.arch}/modules"
+                )
                 container_outdir = f"/work/mkosi.output/initramfs/{cfg.kernel_version}/{cfg.arch}"
                 docker.run_mkosi(
                     cfg,
                     f"--extra-tree={container_tree}",
+                    f"--extra-tree={container_modules}",
                     f"--output-dir={container_outdir}",
                     command,
                     *extra,
@@ -1365,7 +1380,8 @@ def main(project_dir: Path | None = None) -> None:
                     [
                         "mkosi",
                         f"--architecture={cfg.arch_info.mkosi_arch}",
-                        f"--extra-tree={extra_tree}",
+                        f"--extra-tree={tools_tree}",
+                        f"--extra-tree={modules_tree}",
                         f"--output-dir={output_dir}",
                         command,
                         *extra,

@@ -125,7 +125,7 @@ def _collect_arch_artifacts(
     import shutil
 
     # Collect kernel
-    vmlinuz_dir = project_dir / "mkosi.output" / "vmlinuz" / kernel_version / arch
+    vmlinuz_dir = project_dir / "mkosi.output" / "kernel" / kernel_version / arch
     vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     vmlinuz_dst = out / f"vmlinuz-{kernel_version}-{arch}"
     if vmlinuz_files:

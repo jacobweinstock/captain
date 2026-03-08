@@ -32,10 +32,10 @@ def _human_size(size: int) -> str:
 
 
 def collect_kernel(cfg: Config, logger: StageLogger | None = None) -> None:
-    """Copy the kernel image from mkosi.output/vmlinuz/{arch}/ to out/."""
+    """Copy the kernel image from mkosi.output/kernel/{version}/{arch}/ to out/."""
     _log = logger or _default_log
     out = ensure_dir(cfg.output_dir)
-    vmlinuz_dir = cfg.vmlinuz_output
+    vmlinuz_dir = cfg.kernel_output
     vmlinuz_files = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     if vmlinuz_files:
         vmlinuz_src = vmlinuz_files[0]
@@ -43,7 +43,7 @@ def collect_kernel(cfg: Config, logger: StageLogger | None = None) -> None:
         shutil.copy2(vmlinuz_src, vmlinuz_dst)
         _log.log(f"kernel: {vmlinuz_dst} ({_human_size(vmlinuz_dst.stat().st_size)})")
     else:
-        _log.warn(f"No kernel image found in {cfg.vmlinuz_output}")
+        _log.warn(f"No kernel image found in {cfg.kernel_output}")
 
 
 def collect_initramfs(cfg: Config, logger: StageLogger | None = None) -> None:

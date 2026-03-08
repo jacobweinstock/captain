@@ -41,7 +41,7 @@ def _grub_cfg(arch: str) -> str:
 
 def _find_vmlinuz(cfg: Config) -> Path:
     """Locate the vmlinuz kernel image."""
-    vmlinuz_dir = cfg.vmlinuz_output
+    vmlinuz_dir = cfg.kernel_output
     candidates = sorted(vmlinuz_dir.glob("vmlinuz-*")) if vmlinuz_dir.is_dir() else []
     if not candidates:
         _log.err(f"No vmlinuz found in {vmlinuz_dir}")

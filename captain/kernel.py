@@ -211,18 +211,19 @@ def build_kernel(cfg: Config, src_dir: Path) -> str:
 
 
 def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
-    """Install modules and kernel image into mkosi.output/extra-tree/{arch}/."""
+    """Install modules and vmlinuz into mkosi.output/kernel/{version}/{arch}/."""
     ai = cfg.arch_info
-    kernel_output = cfg.extra_tree_output
+    modules_root = cfg.modules_output
 
     make_env = {"ARCH": ai.kernel_arch}
     if ai.cross_compile:
         make_env["CROSS_COMPILE"] = ai.cross_compile
 
-    # Install modules
+    # Install modules into the modules subtree.
+    # make modules_install writes to {INSTALL_MOD_PATH}/lib/modules/{kver}/.
     _log.log("Installing modules...")
     run(
-        ["make", f"INSTALL_MOD_PATH={kernel_output}", "modules_install"],
+        ["make", f"INSTALL_MOD_PATH={modules_root}", "modules_install"],
         env=make_env,
         cwd=src_dir,
     )
@@ -230,7 +231,7 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     # Strip debug symbols from modules
     _log.log("Stripping debug symbols from modules...")
     strip_cmd = f"{ai.strip_prefix}strip"
-    for ko in kernel_output.rglob("*.ko"):
+    for ko in modules_root.rglob("*.ko"):
         run([strip_cmd, "--strip-unneeded", str(ko)], check=False)
 
     # Compress modules with zstd (the defconfig sets CONFIG_MODULE_COMPRESS_ZSTD
@@ -238,16 +239,16 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     # We compress explicitly here because the build container's modules_install
     # may not always invoke zstd, and stripping must happen before compression.
     _log.log("Compressing kernel modules with zstd...")
-    for ko in kernel_output.rglob("*.ko"):
+    for ko in modules_root.rglob("*.ko"):
         run(["zstd", "--rm", "-q", "-19", str(ko)], check=True)
 
     # Clean up build/source symlinks
-    mod_base = kernel_output / "lib" / "modules" / built_kver
+    mod_base = modules_root / "lib" / "modules" / built_kver
     (mod_base / "build").unlink(missing_ok=True)
     (mod_base / "source").unlink(missing_ok=True)
 
     # Move modules from /lib/modules to /usr/lib/modules (merged-usr)
-    usr_moddir = ensure_dir(kernel_output / "usr" / "lib" / "modules" / built_kver)
+    usr_moddir = ensure_dir(modules_root / "usr" / "lib" / "modules" / built_kver)
     if mod_base.is_dir():
         for item in mod_base.iterdir():
             dest = usr_moddir / item.name
@@ -258,19 +259,19 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
                     dest.unlink()
             shutil.move(str(item), str(dest))
         # Remove /lib tree
-        shutil.rmtree(kernel_output / "lib", ignore_errors=True)
+        shutil.rmtree(modules_root / "lib", ignore_errors=True)
 
     # Regenerate module dependency metadata for the compressed .ko.zst files.
     _log.log("Running depmod for compressed modules...")
     run(
-        ["depmod", "-a", "-b", str(kernel_output / "usr"), built_kver],
+        ["depmod", "-a", "-b", str(modules_root / "usr"), built_kver],
         check=True,
     )
 
-    # Place vmlinuz *outside* the ExtraTrees path so it does NOT end up
-    # inside the initramfs CPIO.  iPXE loads the kernel separately.
+    # Place vmlinuz alongside modules under kernel_output.  iPXE loads
+    # the kernel image separately — it must NOT end up in the initramfs.
     kernel_image = src_dir / ai.kernel_image_path
-    vmlinuz_dir = ensure_dir(cfg.vmlinuz_output)
+    vmlinuz_dir = ensure_dir(cfg.kernel_output)
 
     # Remove stale vmlinuz images from prior builds so artifact collection
     # never picks an outdated kernel.
@@ -285,18 +286,16 @@ def install_kernel(cfg: Config, src_dir: Path, built_kver: str) -> None:
     _log.log(f"    Image:   {vmlinuz} ({vmlinuz_size:.1f}M)")
     _log.log(f"    Modules: {usr_moddir}/")
     _log.log(f"    Version: {built_kver}")
-    _log.log(f"    Output:  {kernel_output}")
+    _log.log(f"    Output:  {cfg.kernel_output}")
 
 
 def build(cfg: Config) -> None:
     """Full kernel build pipeline — download, configure, build, install."""
-    # Clean previous output to ensure idempotency
-    if cfg.extra_tree_output.exists():
-        shutil.rmtree(cfg.extra_tree_output)
-    ensure_dir(cfg.extra_tree_output)
-
-    if cfg.vmlinuz_output.exists():
-        shutil.rmtree(cfg.vmlinuz_output)
+    # Clean previous kernel output to ensure idempotency.
+    # Only the kernel directory is wiped — tools are left intact.
+    if cfg.kernel_output.exists():
+        shutil.rmtree(cfg.kernel_output)
+    ensure_dir(cfg.kernel_output)
 
     build_dir = Path("/var/tmp/kernel-build")
 

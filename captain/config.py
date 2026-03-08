@@ -61,6 +61,7 @@ class Config:
 
     def __post_init__(self) -> None:
         self.arch_info = get_arch_info(self.arch)
+        self.arch = self.arch_info.arch  # normalise aliases (x86_64 → amd64, etc.)
         for name, value in (
             ("KERNEL_MODE", self.kernel_mode),
             ("TOOLS_MODE", self.tools_mode),
@@ -150,22 +151,35 @@ class Config:
         )
 
     @property
-    def extra_tree_output(self) -> Path:
-        """Per-arch mkosi ExtraTrees staging directory.
+    def tools_output(self) -> Path:
+        """Per-arch staging directory for downloaded tools.
 
-        Everything placed here (kernel modules, tools, etc.) is merged
-        into the initramfs CPIO by mkosi via ``--extra-tree=``.
+        Contains containerd, runc, nerdctl, and CNI plugins.
+        Passed to mkosi via ``--extra-tree=`` to merge into the initramfs.
+        Kernel modules are stored separately under :attr:`kernel_output`.
         """
-        return self.project_dir / "mkosi.output" / "extra-tree" / self.arch
+        return self.project_dir / "mkosi.output" / "tools" / self.arch
 
     @property
-    def vmlinuz_output(self) -> Path:
-        """Per-version, per-arch directory for the vmlinuz kernel image.
+    def kernel_output(self) -> Path:
+        """Per-version, per-arch directory for all kernel build artifacts.
 
-        Kept outside ExtraTrees so the kernel binary is not packed into
-        the initramfs CPIO — iPXE loads it separately.
+        Contains the vmlinuz image (loaded separately by iPXE) and
+        a ``modules/`` subtree that mirrors a root filesystem layout
+        (``usr/lib/modules/{kver}/``) so it can be passed directly
+        as an ``--extra-tree=`` to mkosi.
         """
-        return self.project_dir / "mkosi.output" / "vmlinuz" / self.kernel_version / self.arch
+        return self.project_dir / "mkosi.output" / "kernel" / self.kernel_version / self.arch
+
+    @property
+    def modules_output(self) -> Path:
+        """Per-version, per-arch root for kernel modules.
+
+        Returns ``kernel/{version}/{arch}/modules`` which contains a
+        merged-usr tree (``usr/lib/modules/{kver}/``) suitable for
+        passing as ``--extra-tree=`` to mkosi.
+        """
+        return self.kernel_output / "modules"
 
     @property
     def mkosi_output(self) -> Path:
