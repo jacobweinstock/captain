@@ -148,7 +148,7 @@ jobs:
         run: sudo chown -R "$(id -u):$(id -g)" mkosi.output/
 
       - name: Save kernel cache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.kernel-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -198,7 +198,7 @@ jobs:
         run: ./build.py tools
 
       - name: Save tools cache
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.tools-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
