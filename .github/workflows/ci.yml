@@ -245,6 +245,13 @@ jobs:
           name: tools-${{ matrix.arch }}
           path: mkosi.output/tools/${{ matrix.arch }}
 
+      - name: Restore tool binary permissions
+        run: |
+          # GitHub Actions artifact upload/download strips execute permissions.
+          # Restore +x on all tool binaries so they work inside the initramfs.
+          chmod +x mkosi.output/tools/${{ matrix.arch }}/usr/local/bin/*
+          chmod +x mkosi.output/tools/${{ matrix.arch }}/opt/cni/bin/*
+
       - name: Refresh apt cache
         run: sudo apt-get update
 
