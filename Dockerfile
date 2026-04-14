@@ -74,12 +74,17 @@ RUN ln -sf ~/.local/bin/mkosi /usr/bin/mkosi
 # Verify mkosi is functional
 RUN mkosi --version
 
-# Prime uv's cache with our pyproject.toml to speed up runtime
-COPY pyproject.toml /tmp/pyproject.toml
-COPY captain /tmp/captain
-COPY build.py /tmp/build.py
-WORKDIR /tmp
-RUN uv --verbose run build.py --help
+# Install project dependencies into a persistent venv so that
+# `uv run` inside the container reuses it instead of recreating one.
+COPY pyproject.toml /opt/captain/pyproject.toml
+COPY captain /opt/captain/captain
+COPY build.py /opt/captain/build.py
+RUN uv venv /opt/captain-venv && \
+    VIRTUAL_ENV=/opt/captain-venv uv pip install --project /opt/captain /opt/captain
+
+# Point uv at the pre-built venv for all future runs.
+ENV VIRTUAL_ENV=/opt/captain-venv
+ENV UV_PROJECT_ENVIRONMENT=/opt/captain-venv
 
 WORKDIR /work
 ENTRYPOINT ["mkosi"]
