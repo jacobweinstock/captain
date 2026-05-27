@@ -258,7 +258,10 @@ jobs:
         run: sudo apt-get -o "Dpkg::Use-Pty=0" update
 
       - name: setup-mkosi
-        uses: systemd/mkosi@v26
+        # Pinned post-v26 to pick up systemd/mkosi@1f811f05 ("tools: move grub-pc-bin
+        # to arch-specific drop-in"), which fixes arm64 builds failing on the
+        # default tools-tree pulling in grub-pc-bin (BIOS GRUB, x86-only).
+        uses: systemd/mkosi@1f811f0524be3096872e79161c8e6ab3e7c2bb1f
 
       - name: Install bubblewrap
         run: |

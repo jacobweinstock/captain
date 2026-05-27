@@ -3,7 +3,11 @@
 # Usage: docker build -t captainos-builder . && docker run --rm --privileged -v $(pwd):/work captainos-builder build
 FROM debian:trixie
 
-ARG MKOSI_VERSION=v26
+# Pinned post-v26 to pick up systemd/mkosi@1f811f05 ("tools: move grub-pc-bin
+# to arch-specific drop-in"), which fixes arm64 builds failing on the default
+# tools-tree pulling in grub-pc-bin (BIOS GRUB, x86-only). Bump to a release
+# tag once v27 lands.
+ARG MKOSI_VERSION=1f811f0524be3096872e79161c8e6ab3e7c2bb1f
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
